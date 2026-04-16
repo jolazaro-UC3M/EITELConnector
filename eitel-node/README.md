@@ -1,276 +1,229 @@
-# EITEL Node: Self-Hostable GAIA-X Participant
+# EITEL Node
 
-A federated dataspace participant node implementing the **EITEL dual-VC trust handshake**. Two institutions on a LAN can negotiate and execute data transfers directly—**without EITEL as intermediary**.
+Nodo participante autohospedable para EITEL Distribuido (Fase Estrella). Implementa la puerta de confianza dual-VC que valida credenciales de pares antes de negociar intercambios de datos directos P2P sin intermediarios.
 
-This is a **proof-of-concept** for Project Star (Fase Estrella), demonstrating that GAIA-X principles and dataspace protocols enable direct peer-to-peer data exchange.
+## Inicio rápido
 
----
+**Requisitos:** Docker & Docker Compose, o Python 3.13+ con [uv](https://docs.astral.sh/uv/guides/installation/)
 
-## What is eitel-node?
+### Docker (recomendado)
 
-**Three-layer architecture:**
+```bash
+cd eitel-node
+docker compose up -d
+```
 
-1. **Handshake Service (FastAPI)** — Verifies institutional identity via dual-VC handshake, issues session tokens
-2. **EDC (Eclipse Dataspace Connector)** — Negotiates contracts and transfers via DSP (Dataspace Protocol)
-3. **copyparty** — P2P file store backend (WebRTC on LAN)
+El servicio de handshake será accesible en `http://localhost:8080` • Documentación en `http://localhost:8080/docs`
 
-Each node runs as a Docker Compose stack. On startup:
-- Generates a Ed25519 keypair and derives a `did:key` (no domain required)
-- Exposes `/handshake/initiate` endpoint for peer trust establishment
-- Connects to EDC for asset cataloguing and DSP negotiation
+### Desarrollo local (Python)
 
----
+```bash
+cd eitel-node/handshake
+uv venv && source .venv/bin/activate  # Unix/macOS
+uv venv && .venv\Scripts\activate     # Windows
+uv sync
+```
 
-## Quick Start (PoC on Single Machine)
+**Configurar variables de entorno:**
 
-### Prerequisites
+```bash
+cp .env.example .env
+# Editar .env con rutas locales y secretos
+```
 
-- Docker + Docker Compose (v2.20+ for `include:` directive, or skip Option A)
-- 2+ GB RAM, 1+ GB free disk
-- Git
+**Ejecutar servicio:**
 
-### Setup
+```bash
+uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080
+```
 
-1. **Clone and navigate:**
-   ```bash
-   git clone https://github.com/jolazaro-UC3M/EITELConnector.git
-   cd EITELConnector/eitel-node
-   ```
+API disponible en `http://localhost:8080` • Documentación en `http://localhost:8080/docs`
 
-2. **Generate session token secret:**
-   ```bash
-   openssl rand -base64 32
-   # Output: abc123def456... (copy this)
-   ```
+## Configuración
 
-3. **Copy environment template and configure:**
-   ```bash
-   cp .env.example .env
-   # Edit .env and paste the generated secret into EITEL_NODE_SESSION_TOKEN_SECRET=
-   ```
+Las variables de entorno (prefijo `EITEL_NODE_`) se cargan desde `.env`:
 
-4. **Place coordinator public key:**
-   ```bash
-   # Obtain from EITELCoordinator (UC3M deployment)
-   # Save to: keys/coordinator_pubkey.jwk
-   cp /path/to/coordinator-ed25519-pub.jwk keys/coordinator_pubkey.jwk
-   ```
+```bash
+# En eitel-node/handshake/.env
+EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
+EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-control:8182
+EITEL_NODE_NODE_IDENTITY_DIR=/identity
+EITEL_NODE_SESSION_TOKEN_TTL=3600
+EITEL_NODE_SESSION_TOKEN_SECRET=cambiar-a-secreto-fuerte-en-produccion
+```
 
-5. **Start the stack:**
+Ver [`.env.example`](.env.example) para opciones completas.
 
-   **Option A (include caas/ if available):**
-   ```bash
-   # Uncomment the include: section in docker-compose.yml
-   # Ensure caas/ is a sibling directory
-   docker compose up -d
-   ```
+**Clave pública del Coordinador:** Colocar archivo JWK en `eitel-node/keys/coordinator_pubkey.jwk` (obtenido de EITELCoordinator)
 
-   **Option B (external EDC):**
-   ```bash
-   # Set EDC URL in .env, then:
-   docker compose up -d
-   ```
+## Endpoints de la API
 
-6. **Verify health:**
-   ```bash
-   curl http://localhost:8080/health
-   # Response: {"status":"ok","service":"eitel-node-handshake","node_did":"did:key:z6Mk..."}
-   
-   curl http://localhost:3923/
-   # Response: copyparty web UI (or 200 OK from API)
-   ```
+### `GET /health`
 
----
+Estado del servicio.
 
-## PoC Scenario: Two Nodes on LAN
+```bash
+curl http://localhost:8080/health
+```
 
-**Setup:**
-- Machine A (UC3M LAN): runs `docker compose up` from eitel-node/
-- Machine B (UC3M LAN): runs `docker compose up` from a separate eitel-node/ clone
+### `GET /status`
 
-**Flow:**
+Información del nodo: DID, último handshake, peers registrados, estado VP de Gaia-X.
 
-1. **Mutual trust establishment:**
-   ```bash
-   # On Machine A: call Machine B's handshake endpoint
-   curl -X POST http://machineB:8080/handshake/initiate \
-     -H "Content-Type: application/json" \
-     -d '{
-       "did": "did:key:z6MkiXXXXXNodeA",
-       "eitel_vc": {
-         "@context": [...],
-         "issuer": "did:key:z6MkuCoordinator",
-         "credentialSubject": { "id": "did:key:z6MkiXXXXXNodeA", "expirationDate": "2026-04-16T00:00:00Z" },
-         "proof": { "type": "Ed25519Signature2020", "signatureValue": "..." }
-       },
-       "gaia_x_vp": { ... }  # Optional
-     }'
-   
-   # Response:
-   # {
-   #   "status": "ok",
-   #   "session_token": "eyJhbGci...",
-   #   "node_did": "did:key:z6MkuXXXXXNodeB",
-   #   "peer_did": "did:key:z6MkiXXXXXNodeA",
-   #   "gx_vp_status": "valid|absent|invalid_...",
-   #   "dsp_endpoint": "http://machineB:11003/api/v1/dsp"
-   # }
-   ```
+```bash
+curl http://localhost:8080/status
+```
 
-2. **EDC asset negotiation:**
-   - Machine A's EDC uses the `dsp_endpoint` from handshake response to initiate DSP negotiation with Machine B's EDC
-   - Both EDCs negotiate contract terms (asset, policy, transfer modality)
-   - No further involvement of handshake service
-
-3. **P2P data transfer:**
-   - copyparty on Machine B serves files (via internal EDC data plane configuration)
-   - Machine A's EDC transfers files to Machine A's copyparty via direct WebRTC P2P connection on LAN
-   - **No cloud intermediary, no central EITEL involved**
-
-4. **Verify peer registry:**
-   ```bash
-   curl http://machineB:8080/status
-   # Shows registered peers, last handshake, GX VP status
-   ```
-
----
-
-## Configuration
-
-### Environment Variables (`.env`)
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH` | `/keys/coordinator_pubkey.jwk` | Path to EITELCoordinator's Ed25519 public key (JWK format) |
-| `EITEL_NODE_NODE_IDENTITY_DIR` | `/identity` | Where to persist this node's did:key + keypair |
-| `EITEL_NODE_EDC_MANAGEMENT_URL` | `http://edc-control:8182` | EDC management API URL (external or via caas/) |
-| `EITEL_NODE_EDC_API_KEY` | `change-me` | EDC management API auth key |
-| `EITEL_NODE_EDC_DSP_ENDPOINT` | `http://localhost:11003/api/v1/dsp` | EDC DSP URL (returned to peers) |
-| `EITEL_NODE_SESSION_TOKEN_TTL` | `3600` | Session token lifetime (seconds) |
-| `EITEL_NODE_SESSION_TOKEN_SECRET` | *(required)* | HMAC-SHA256 signing secret (generate with `openssl rand -base64 32`) |
-
-### Coordinator Public Key
-
-Place the EITELCoordinator's Ed25519 public key in JWK format at `keys/coordinator_pubkey.jwk`:
-
+Respuesta:
 ```json
 {
-  "crv": "Ed25519",
-  "kid": "eitel-coordinator-poc-1",
-  "kty": "OKP",
-  "x": "q2EH8Q2KuRKY-xoQAAHQhx77n4LSdyKGbrmWGtPNxaE",
-  "use": "sig"
+  "node_did": "did:key:z6Mk...",
+  "last_handshake": "2025-04-16T12:34:56Z",
+  "gx_vp_status": "absent",
+  "registered_peers": [
+    {
+      "did": "did:key:z6Mk...",
+      "registered_at": "2025-04-16T12:00:00Z",
+      "status": "active"
+    }
+  ]
 }
 ```
 
-**Do not commit real keys.** Only `.gitkeep` is tracked; `.gitignore` excludes `.jwk` files.
+### `POST /handshake/initiate`
 
----
+Iniciar handshake dual-VC con otro nodo. Valida credencial EITEL y VP de Gaia-X (opcional), emite token de sesión.
 
-## API Endpoints
-
-### Handshake
-
-**POST /handshake/initiate**
-- Dual-VC trust establishment
-- Request: `{ did, eitel_vc, gaia_x_vp? }`
-- Response: `{ status, session_token, node_did, peer_did, gx_vp_status, dsp_endpoint }`
-- Errors: 400 (Bad Request), 401 (Unauthorized)
-
-See `docs/PROTOCOL.md` for full message schemas.
-
-### Status & Tickets
-
-**GET /status**
-- Node identity, peer registry, last handshake
-- Response: `{ node_did, last_handshake, gx_vp_status, registered_peers }`
-
-**GET /handshake/ticket**
-- Exchange session token for one-time WebSocket upgrade ticket (future use)
-- Request header: `Authorization: Bearer <session_token>`
-- Response: `{ ticket, expires_in }`
-
-### Health
-
-**GET /health**
-- Simple readiness probe
-- Response: `{ status: "ok", service, node_did }`
-
----
-
-## Known Limitations (PoC Scope)
-
-1. **Identity: `did:key` only** — No domain binding (`did:web`). Simpler for PoC; production requires TLS cert.
-2. **GX VP validation: best-effort** — Full GAIA-X compliance chain unreachable at `compliance.eiteldata.eu` (TLS mismatch). UC3M/Fuenlabrada VPs treated as "near-production" artefacts.
-3. **P2P on LAN only** — copyparty WebRTC works without port forwarding on LAN. Production requires STUN/TURN for internet routing.
-4. **Session tokens: 1-hour TTL** — No revocation list. Short-lived by design.
-5. **No EDC data plane** — Transfer execution is stub; EDC control plane only in PoC.
-
----
-
-## Future Work (Production Path)
-
-- **did:web**: Replace `did:key` with institution domain binding + TLS cert
-- **Full GX compliance**: Resolve TLS chain issue or use alternative credential provider
-- **NAT traversal**: Implement STUN/TURN for cross-site P2P
-- **HTTPS**: Handshake service behind TLS reverse proxy
-- **Persistent peer registry**: Database for handshake history and peer state
-- **Multi-policy**: EDC integration for negotiating complex data access policies
-- **EDC data plane**: Complete transfer execution (not just initiation)
-
----
-
-## Architecture Diagrams & Details
-
-See `docs/ARCHITECTURE.md` for three-layer architecture, caas/ relationship, threat model, and production migration paths.
-
----
-
-## Troubleshooting
-
-### Containers won't start
 ```bash
-# Check logs
-docker compose logs handshake
-docker compose logs copyparty
-
-# Verify volumes mounted
-docker inspect eitel-node-handshake | grep Mounts
+curl -X POST http://localhost:8080/handshake/initiate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "did": "did:key:z6Mk...",
+    "eitel_vc": {
+      "@context": ["https://www.w3.org/2018/credentials/v1"],
+      "type": ["VerifiableCredential"],
+      "issuer": "did:key:z6Mk...Coordinator",
+      "credentialSubject": {"id": "did:key:z6Mk..."},
+      "proof": {"type": "JwtProof", "jwt": "eyJ..."}
+    }
+  }'
 ```
 
-### VC validation fails
-- Verify `keys/coordinator_pubkey.jwk` exists and is valid JWK format
-- Check VC issuer matches configured coordinator DID
-- Check VC proof type is "JwtProof" and JWS signature is valid
+Respuesta (éxito):
+```json
+{
+  "status": "ok",
+  "session_token": "eyJ...",
+  "node_did": "did:key:z6Mk...",
+  "peer_did": "did:key:z6Mk...",
+  "gx_vp_status": "absent",
+  "dsp_endpoint": "http://localhost:11003/api/v1/dsp"
+}
+```
 
-### Session token errors
-- Verify `EITEL_NODE_SESSION_TOKEN_SECRET` is set to a strong value
-- Check Bearer token format: `Authorization: Bearer <token>`
+### `GET /handshake/ticket`
 
-### Copyparty not accessible
-- Verify port 3923 is not blocked locally
-- Check `docker ps` — container should be running
-- Try: `curl http://localhost:3923/`
+Intercambiar token de sesión por ticket de WebSocket de un solo uso (30s).
 
----
+```bash
+curl http://localhost:8080/handshake/ticket \
+  -H "Authorization: Bearer eyJ..."
+```
 
-## Contributing
+## Tests
 
-This is a PoC branch: `feature/eitel-node-poc`. For production adoption, see migration paths in `docs/ARCHITECTURE.md`.
+```bash
+cd eitel-node/handshake
 
----
+uv run pytest tests/              # Todos los tests (45 total)
+uv run pytest tests/ -v           # Verbose
+uv run pytest tests/ --cov=core   # Con cobertura
+```
 
-## License & Attribution
+Tests incluyen:
+- **Unitarios (36):** Generación de identidad, validación de VC, tokens JWT, verificación VP
+- **Integración (9):** Flujo completo de handshake, endpoints HTTP, registración de peers
 
-Part of the EITEL Dataspace project. Uses:
-- **FastAPI** for handshake service
-- **cryptography** for Ed25519 signatures
-- **PyJWT** for session tokens
-- **copyparty** for P2P file transfer
-- **Eclipse Dataspace Connector** for DSP protocol
+## Estructura del proyecto
 
----
+```
+eitel-node/
+├── README.md                 # Este archivo
+├── .env.example              # Variables de entorno
+├── docker-compose.yml        # Stack de tres capas
+├── keys/
+│   └── coordinator_pubkey.jwk    # Clave pública del Coordinador
+├── handshake/
+│   ├── main.py               # Aplicación FastAPI
+│   ├── config.py             # Configuración desde entorno
+│   ├── Dockerfile            # Imagen del servicio
+│   ├── requirements.txt       # Dependencias Python
+│   ├── core/
+│   │   ├── identity.py       # Generación did:key + persistencia
+│   │   ├── vc_verifier.py    # Validación VC con JWS Ed25519
+│   │   ├── vp_checker.py     # Validación VP Gaia-X (best-effort)
+│   │   ├── session.py        # JWT + tickets WebSocket
+│   │   └── edc_client.py     # Proxy a EDC management API
+│   ├── routers/
+│   │   ├── handshake.py      # POST /handshake/initiate
+│   │   └── status.py         # GET /status, GET /handshake/ticket
+│   └── tests/
+│       ├── test_identity.py        # Tests de identidad
+│       ├── test_vc_verifier.py     # Tests de VC
+│       ├── test_session_tokens.py  # Tests de JWT
+│       ├── test_handshake_endpoint.py  # Tests de modelos
+│       └── test_integration.py     # Tests de integración
+└── docs/
+    ├── PROTOCOL.md       # Especificación del protocolo
+    └── ARCHITECTURE.md   # Arquitectura de tres capas
+```
 
-## Contact
+## Arquitectura
 
-For PoC questions or integration with UC3M LAN deployment: contact jolazaro@uc3m.es
+**Tres capas:**
+
+1. **Handshake Service (Capa 1):** Valida credenciales EITEL mediante firmas Ed25519, verifica identidades de pares, emite tokens JWT para autenticación.
+
+2. **EDC (Capa 2):** Eclipse Dataspace Connector ejecuta negociación DSP entre pares. El handshake service actúa como proxy de catálogo.
+
+3. **copyparty (Capa 3):** Almacenamiento P2P descentralizado. WebRTC E2E para transferencias directas en LAN.
+
+**Flujo de confianza:**
+
+1. Nodo A envía VC firmado por Coordinador al Nodo B
+2. Nodo B valida firma con clave pública del Coordinador (cacheada, offline)
+3. Handshake genera token de sesión
+4. Nodo A autentica en endpoints de Nodo B con el token
+5. EDC negocia transferencias; copyparty ejecuta P2P
+
+Después del handshake, el Coordinador no está en la ruta de datos.
+
+## Tecnologías
+
+- Python 3.13
+- FastAPI + uvicorn
+- cryptography (Ed25519)
+- jwcrypto (JWS/JWT)
+- pydantic-settings
+- base58 (multibase encoding para did:key)
+- pytest (45 tests unitarios + integración)
+
+## Futuro
+
+- [ ] **did:web:** Reemplazar did:key con dominio institucional (producción)
+- [ ] **Cadena Gaia-X completa:** Resolver problema TLS en compliance.eiteldata.eu
+- [ ] **Persistencia de peers:** Base de datos para historial de handshakes
+- [ ] **NAT traversal:** STUN/TURN para sitios distribuidos (no LAN)
+- [ ] **TLS/HTTPS:** Servicio detrás de reverse proxy con certificados
+- [ ] **Negociación de políticas:** Soporte para contratos de acceso a datos
+- [ ] **EDC data plane:** Ejecución de transferencias
+- [ ] **Observabilidad:** Prometheus, Jaeger, logging estructurado
+
+## Contexto
+
+Parte de la arquitectura distribuida de EITEL Distribuido (Fase Estrella):
+- **[EITELCoordinator](https://github.com/tu-org/EITELCoordinator):** Autoridad de confianza, emite VCs
+- **[EITEL Node](https://github.com/tu-org/EITELConnector):** Participante autohospedable
+- **[CaaS](https://github.com/tu-org/EITELConnector):** Orquestación EDC multi-tenant
+
+Diseñado para demostrar intercambio directo de datos entre instituciones sin intermediarios en Fase Estrella del proyecto.
