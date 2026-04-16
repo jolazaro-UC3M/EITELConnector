@@ -1,0 +1,33 @@
+# Ignore sensitive keys and generated files
+keys/coordinator_pubkey.pem
+keys/*.pem
+*.key
+*.pub
+.env
+.env.local
+.env.*.local
+
+# Node identity (persisted in volume, don't commit)
+handshake/identity/
+identity/
+
+# Generated files
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
