@@ -10,11 +10,23 @@ services:
     environment:
       - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
       - EITEL_NODE_NODE_IDENTITY_DIR=/identity
-      - EITEL_NODE_EDC_MANAGEMENT_URL=${EITEL_NODE_EDC_MANAGEMENT_URL:-http://edc-control:8182}
+      # -------------------------------------------------------------------
+      # EDC (Eclipse Dataspace Connector) integration — PoC scope
+      # The handshake app uses these to reach the EDC control plane for
+      # contract negotiation and catalogue operations (DSP protocol).
+      # For the PoC, set EDC_MANAGEMENT_URL to the caas/ service if running
+      # on the same machine (see Option A below), or to an external EDC.
+      # Leave as placeholder values until EDC is deployed alongside this node.
+      # -------------------------------------------------------------------
+      - EITEL_NODE_EDC_MANAGEMENT_URL=${EITEL_NODE_EDC_MANAGEMENT_URL:-http://eitel-caas-control-plane:8081}
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-change-me}
       - EITEL_NODE_EDC_DSP_ENDPOINT=${EITEL_NODE_EDC_DSP_ENDPOINT:-http://localhost:11003/api/v1/dsp}
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
       - EITEL_NODE_SESSION_TOKEN_SECRET=${EITEL_NODE_SESSION_TOKEN_SECRET}
+      # copyparty configuration — local file store backend
+      - COPYPARTY_URL=http://copyparty:3923
+      - COPYPARTY_USER=eitel
+      - COPYPARTY_PASSWORD=${COPYPARTY_PASSWORD:-changeme}
     volumes:
       - ./keys:/keys:ro
       - node_identity:/identity
@@ -27,19 +39,24 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # copyparty: P2P file store backend for data transfer
+  # copyparty: Local file store backend (HTTP API accessed by handshake app)
   copyparty:
-    image: copyparty/copyparty:latest
+    image: python:3.11-slim
     container_name: eitel-node-copyparty
     ports:
-      - "3923:3923"
+      - "127.0.0.1:3923:3923"  # Internal only — access via handshake app. Do not expose publicly.
     volumes:
       - copyparty_data:/data
     networks:
       - eitel-internal
-    # WebRTC P2P enabled (--e2d), no authentication
-    # Authentication handled by handshake layer via session tokens
-    command: ["--e2d", "--no-auth", "/data"]
+    environment:
+      - COPYPARTY_PASSWORD=${COPYPARTY_PASSWORD:-changeme}
+    command: >
+      sh -c "pip install -q copyparty && python -m copyparty
+        -p 3923
+        -v /data:/files:rw,eitel
+        -a eitel:${COPYPARTY_PASSWORD:-changeme}
+        -e2dsa"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3923/"]
       interval: 10s
@@ -61,28 +78,42 @@ volumes:
     # Persists uploaded/shared files
 
 # ============================================================================
-# IMPORTANT: EDC Integration
+# EDC Integration & Architecture
 # ============================================================================
 #
-# This compose stack does NOT define EDC services. The handshake service
-# connects to an external EDC instance via EDC_MANAGEMENT_URL.
+# COPYPARTY ARCHITECTURE:
+# -------
+# The handshake app calls copyparty via its HTTP API on the internal Docker
+# network. copyparty is never directly reachable by external peers — all data
+# transfer is proxied through the handshake app.
+#
+# EDC INTEGRATION:
+# -------
+# This compose stack does NOT define EDC services by default. The handshake
+# service connects to an external EDC instance via EITEL_NODE_EDC_MANAGEMENT_URL.
+#
+# Handshake app will stub EDC calls initially:
+# - Catalogue queries: WORK (functional)
+# - Contract negotiation: STUB (returns error messages)
+# Stubs will be replaced as EDC integration is implemented.
 #
 # Option A: Include caas/ services (recommended for PoC on same machine)
 # --------
-# Add to this file:
+# For local testing with both eitel-node and caas services on the same machine,
+# add to this file:
 #
 #   include:
 #     - ../caas/docker-compose.caas.yaml
 #
-# Then set environment:
+# Services will share Docker network, allowing:
 #   EITEL_NODE_EDC_MANAGEMENT_URL=http://eitel-caas-control-plane:8081
 #
-# This brings caas/ services into the same Docker network (edc-net from caas/)
+# This is the recommended path for PoC demo on a single UC3M machine.
 #
-# Option B: External EDC (current default)
+# Option B: External EDC (separate machine)
 # --------
-# Set EITEL_NODE_EDC_MANAGEMENT_URL to point to an external EDC deployment:
-#   export EITEL_NODE_EDC_MANAGEMENT_URL=https://production-edc.example.com:8182
+# Point to a deployed caas instance on a separate machine:
+#   export EITEL_NODE_EDC_MANAGEMENT_URL=https://gis.eiteldata.eu:8081
 #
 # Then run:
 #   docker compose up
