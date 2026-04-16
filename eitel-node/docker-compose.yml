@@ -8,7 +8,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - EITEL_NODE_COORDINATOR_PUBKEY_PATH=/keys/coordinator_pubkey.pem
+      - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
       - EITEL_NODE_NODE_IDENTITY_DIR=/identity
       - EITEL_NODE_EDC_MANAGEMENT_URL=${EITEL_NODE_EDC_MANAGEMENT_URL:-http://edc-control:8182}
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-change-me}
