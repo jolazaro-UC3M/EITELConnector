@@ -2,6 +2,8 @@
 Session token management: JWT issuance and validation for HTTP and WebSocket.
 """
 
+from __future__ import annotations
+
 import time
 from typing import NamedTuple, Optional
 

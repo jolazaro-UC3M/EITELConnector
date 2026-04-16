@@ -24,9 +24,9 @@ class Config(BaseSettings):
     )
 
     # Coordinator trust anchor
-    coordinator_pubkey_path: str = Field(
-        default="/keys/coordinator_pubkey.pem",
-        description="Path to EITELCoordinator's Ed25519 public key (PEM format)",
+    coordinator_pubkey_jwk_path: str = Field(
+        default="/keys/coordinator_pubkey.jwk",
+        description="Path to EITELCoordinator's Ed25519 public key (JWK format)",
     )
 
     # EDC integration
@@ -52,8 +52,8 @@ class Config(BaseSettings):
     )
 
     session_token_secret: str = Field(
-        ...,
-        description="Secret key for JWT signing (HMAC-SHA256). Must be strong. REQUIRED — no default.",
+        default="change-me-strong-secret-key",
+        description="Secret key for JWT signing (HMAC-SHA256). RECOMMENDED: override with strong secret in production.",
     )
 
     # Server

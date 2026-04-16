@@ -6,6 +6,8 @@ management API without pre-registering peers (EDC handles peer identity at
 DSP negotiation time, not before).
 """
 
+from __future__ import annotations
+
 from typing import Optional, NamedTuple
 import httpx
 

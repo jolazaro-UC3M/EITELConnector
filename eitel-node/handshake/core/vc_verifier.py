@@ -7,6 +7,8 @@ Validates that a VC is:
 3. Bound to the peer's claimed DID
 """
 
+from __future__ import annotations
+
 import json
 from typing import NamedTuple
 
