@@ -1,0 +1,13 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+pydantic-settings==2.10.1
+PyJWT==2.8.0
+cryptography==42.0.0
+httpx==0.26.0
+python-multipart==0.0.20
+
+# Optional: for GAIA-X VP validation (best-effort check in PoC)
+# Marked optional because it's a heavy dependency for a stub implementation
+# Uncomment if full JSON-LD VP validation is needed:
+# pyld==2.1
