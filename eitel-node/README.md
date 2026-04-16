@@ -186,7 +186,7 @@ eitel-node/
 
 2. **EDC (Capa 2):** Eclipse Dataspace Connector ejecuta negociación DSP entre pares. El handshake service actúa como proxy de catálogo.
 
-3. **copyparty (Capa 3):** Almacenamiento P2P descentralizado. WebRTC E2E para transferencias directas en LAN.
+3. **copyparty (Capa 3):** Almacenamiento de archivos local. HTTP API para acceso desde el handshake app. Transferencias entre nodos: handshake app a handshake app (proxied a través de copyparty local).
 
 **Flujo de confianza:**
 
@@ -194,9 +194,25 @@ eitel-node/
 2. Nodo B valida firma con clave pública del Coordinador (cacheada, offline)
 3. Handshake genera token de sesión
 4. Nodo A autentica en endpoints de Nodo B con el token
-5. EDC negocia transferencias; copyparty ejecuta P2P
+5. EDC negocia acceso (quién puede acceder a qué); copyparty transferencia archivos (bytes de datos)
 
 Después del handshake, el Coordinador no está en la ruta de datos.
+
+## Integración EDC
+
+El handshake app se conecta a un plano de control EDC (Eclipse Dataspace Connector) para:
+- Negociación de contratos (protocolo DSP)
+- Consultas de catálogo de activos
+
+Para el PoC, EDC es proporcionado por los servicios `caas/` en este mismo repositorio. 
+
+La separación de capas es:
+- **EDC (Capa 2):** Define QUIÉN puede acceder a QUÉ (control de acceso, políticas, contratos)
+- **copyparty (Capa 3):** Maneja los BYTES de datos (almacenamiento, transferencia)
+
+El flujo es: Handshake → EDC (negociación) → copyparty (transferencia)
+
+Nota: La integración EDC está en desarrollo. Las llamadas a negociación devuelven stubs (mensajes de error); las consultas de catálogo son funcionales. Los stubs serán reemplazados conforme se implemente la integración completa.
 
 ## Tecnologías
 
