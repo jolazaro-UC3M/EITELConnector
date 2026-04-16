@@ -6,6 +6,8 @@ and persists both to a JSON file in a mounted volume. On subsequent starts, the
 existing keypair is loaded.
 """
 
+from __future__ import annotations
+
 import base58
 import json
 from pathlib import Path

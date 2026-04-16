@@ -8,7 +8,12 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from eitel_node.handshake.core.session import SessionTokenManager, InvalidTokenError
+try:
+    # Try relative imports (when run as a package)
+    from ..core.session import SessionTokenManager, InvalidTokenError
+except ImportError:
+    # Fall back to absolute imports (when run as a script)
+    from core.session import SessionTokenManager, InvalidTokenError
 
 
 router = APIRouter(tags=["status"])

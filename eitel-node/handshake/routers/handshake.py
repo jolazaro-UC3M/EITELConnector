@@ -8,10 +8,18 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from eitel_node.handshake.core.identity import NodeIdentity
-from eitel_node.handshake.core.vc_verifier import EITELVCVerifier
-from eitel_node.handshake.core.vp_checker import GXVPChecker
-from eitel_node.handshake.core.session import SessionTokenManager
+try:
+    # Try relative imports (when run as a package)
+    from ..core.identity import NodeIdentity
+    from ..core.vc_verifier import EITELVCVerifier
+    from ..core.vp_checker import GXVPChecker
+    from ..core.session import SessionTokenManager
+except ImportError:
+    # Fall back to absolute imports (when run as a script)
+    from core.identity import NodeIdentity
+    from core.vc_verifier import EITELVCVerifier
+    from core.vp_checker import GXVPChecker
+    from core.session import SessionTokenManager
 
 
 router = APIRouter(prefix="/handshake", tags=["handshake"])
@@ -126,7 +134,11 @@ async def initiate_handshake(req: InitiateHandshakeRequest) -> InitiateHandshake
         # Step 3: Issue session token
         session_token = session_manager.issue_token(subject=req.did, audience="handshake")
 
-        # Step 4: Return response
+        # Step 4: Update peer registry in status router
+        from . import status
+        status.update_peer_status(req.did, gx_vp_status)
+
+        # Step 5: Return response
         return InitiateHandshakeResponse(
             status="ok",
             session_token=session_token,

@@ -5,19 +5,31 @@ Entry point for the handshake service. Initializes all components (identity,
 VC verification, session management) and mounts routers.
 """
 
+import json
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from .config import load_config
-from .core.identity import NodeIdentity
-from .core.vc_verifier import EITELVCVerifier
-from .core.vp_checker import GXVPChecker
-from .core.session import SessionTokenManager
-from .core.edc_client import EDCClient
-from .routers import handshake, status
+try:
+    # Try relative imports (when run as a package)
+    from .config import load_config
+    from .core.identity import NodeIdentity
+    from .core.vc_verifier import EITELVCVerifier
+    from .core.vp_checker import GXVPChecker
+    from .core.session import SessionTokenManager
+    from .core.edc_client import EDCClient
+    from .routers import handshake, status
+except ImportError:
+    # Fall back to absolute imports (when run as a script)
+    from config import load_config
+    from core.identity import NodeIdentity
+    from core.vc_verifier import EITELVCVerifier
+    from core.vp_checker import GXVPChecker
+    from core.session import SessionTokenManager
+    from core.edc_client import EDCClient
+    from routers import handshake, status
 
 
 # Create FastAPI app
@@ -53,13 +65,13 @@ async def startup_event():
 
     # Load coordinator public key
     try:
-        coordinator_pubkey_path = Path(config.coordinator_pubkey_path)
+        coordinator_pubkey_path = Path(config.coordinator_pubkey_jwk_path)
         if not coordinator_pubkey_path.exists():
             raise FileNotFoundError(
                 f"Coordinator public key not found: {coordinator_pubkey_path}"
             )
-        coordinator_pubkey = coordinator_pubkey_path.read_text()
-        vc_verifier = EITELVCVerifier(coordinator_pubkey)
+        coordinator_pubkey_data = json.loads(coordinator_pubkey_path.read_text())
+        vc_verifier = EITELVCVerifier(coordinator_pubkey_data)
         print("[STARTUP] Coordinator public key loaded")
     except Exception as e:
         print(f"[ERROR] Failed to load coordinator public key: {e}")
@@ -99,7 +111,7 @@ async def startup_event():
     status.init_status_routes(session_manager=session_manager)
 
     # Also pass node_identity to status router for /status endpoint
-    status.router._node_identity = node_identity
+    status.router._node_identity = node_identity  # type: ignore
 
     print("[STARTUP] Handshake service initialized successfully")
 
