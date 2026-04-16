@@ -5,7 +5,6 @@ Entry point for the handshake service. Initializes all components (identity,
 VC verification, session management) and mounts routers.
 """
 
-import json
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -65,13 +64,12 @@ async def startup_event():
 
     # Load coordinator public key
     try:
-        coordinator_pubkey_path = Path(config.coordinator_pubkey_jwk_path)
-        if not coordinator_pubkey_path.exists():
+        coordinator_pubkey_jwk_path = config.coordinator_pubkey_jwk_path
+        if not Path(coordinator_pubkey_jwk_path).exists():
             raise FileNotFoundError(
-                f"Coordinator public key not found: {coordinator_pubkey_path}"
+                f"Coordinator public key not found: {coordinator_pubkey_jwk_path}"
             )
-        coordinator_pubkey_data = json.loads(coordinator_pubkey_path.read_text())
-        vc_verifier = EITELVCVerifier(coordinator_pubkey_data)
+        vc_verifier = EITELVCVerifier(coordinator_pubkey_jwk_path)
         print("[STARTUP] Coordinator public key loaded")
     except Exception as e:
         print(f"[ERROR] Failed to load coordinator public key: {e}")
