@@ -3,3 +3,10 @@ _tmp_remote_check/
 response_catalog.json
 tmp_logo_b64.txt
 caas/data/caas.db
+
+# Virtual environment
+.venv/
+
+# Internal documentation and reference files
+ref/
+CLAUDE.md
