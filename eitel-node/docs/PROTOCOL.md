@@ -64,10 +64,8 @@ Content-Type: application/json
       "expirationDate": "2026-04-15T10:00:00Z"
     },
     "proof": {
-      "type": "Ed25519Signature2020",
-      "created": "2025-04-15T10:00:00Z",
-      "verificationMethod": "did:key:z6Mku...Coordinator#z6Mku...Coordinator",
-      "signatureValue": "base64_encoded_ed25519_signature"
+      "type": "JwtProof",
+      "jwt": "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkaWQ6a2V5Ono2TWt1IiwiY3JlZGVudGlhbFN1YmplY3QiOnsiid...base64_jws_compact_serialization..."}
     }
   },
   "gaia_x_vp": {
@@ -104,21 +102,17 @@ Node B validates Node A's EITEL VC:
    - Verify `@context` includes `https://www.w3.org/2018/credentials/v1`
    - Verify `type` includes `"VerifiableCredential"`
    - Verify `issuer` is the configured EITELCoordinator DID
+   - Verify `proof.type == "JwtProof"` and `proof.jwt` is present
 
 2. **Signature verification:**
-   - Extract `proof` object (type: `"Ed25519Signature2020"`)
-   - Reconstruct the canonical JSON-LD payload (credential without proof)
-   - Load the coordinator's Ed25519 public key from static config (`coordinator_pubkey.pem`)
-   - Verify `signatureValue` against the reconstructed payload using Ed25519
-   - **On failure:** Return 401 Unauthorized, detail: "VC signature invalid"
+   - Extract `proof.jwt` (JWS compact serialization: header.payload.signature)
+   - Load the coordinator's Ed25519 public key from static config (`coordinator_pubkey.jwk`)
+   - Verify JWS signature using EdDSA algorithm against the public key
+   - Decode the JWS payload to extract the signed VC body
+   - **On failure:** Return 401 Unauthorized, detail: "JWS signature verification failed"
 
-3. **Expiration check:**
-   - Extract `credentialSubject.expirationDate` (RFC3339 format)
-   - Verify `expirationDate > now`
-   - **On failure:** Return 401 Unauthorized, detail: "VC expired"
-
-4. **DID binding check:**
-   - Verify `credentialSubject.id == req.did`
+3. **DID binding check:**
+   - Verify `credentialSubject.id == req.did` (from decoded JWT payload)
    - **On failure:** Return 400 Bad Request, detail: "DID mismatch"
 
 **On all checks passing:** Proceed to Step 3.
@@ -379,13 +373,17 @@ interface SessionTokenPayload {
 
 ## Coordinator Public Key Loading
 
-The handshake service loads the EITELCoordinator's Ed25519 public key at startup from a static PEM file (environment variable `COORDINATOR_PUBKEY_PATH`).
+The handshake service loads the EITELCoordinator's Ed25519 public key at startup from a static JWK file (environment variable `EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH`).
 
-**Example coordinator pubkey.pem (Ed25519):**
-```
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA...base64_encoded_public_key...
------END PUBLIC KEY-----
+**Example coordinator_pubkey.jwk (Ed25519):**
+```json
+{
+  "crv": "Ed25519",
+  "kid": "eitel-coordinator-poc-1",
+  "kty": "OKP",
+  "x": "q2EH8Q2KuRKY-xoQAAHQhx77n4LSdyKGbrmWGtPNxaE",
+  "use": "sig"
+}
 ```
 
 **Rationale:** Static loading mirrors production TLS certificate handling. No live DID resolution. Coordinator key rotation requires service restart (acceptable for PoC; production would use DID document resolution).

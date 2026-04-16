@@ -52,8 +52,8 @@ Each node runs as a Docker Compose stack. On startup:
 4. **Place coordinator public key:**
    ```bash
    # Obtain from EITELCoordinator (UC3M deployment)
-   # Save to: keys/coordinator_pubkey.pem
-   cp /path/to/coordinator-ed25519-pub.pem keys/coordinator_pubkey.pem
+   # Save to: keys/coordinator_pubkey.jwk
+   cp /path/to/coordinator-ed25519-pub.jwk keys/coordinator_pubkey.jwk
    ```
 
 5. **Start the stack:**
@@ -141,7 +141,7 @@ Each node runs as a Docker Compose stack. On startup:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `EITEL_NODE_COORDINATOR_PUBKEY_PATH` | `/keys/coordinator_pubkey.pem` | Path to EITELCoordinator's Ed25519 public key |
+| `EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH` | `/keys/coordinator_pubkey.jwk` | Path to EITELCoordinator's Ed25519 public key (JWK format) |
 | `EITEL_NODE_NODE_IDENTITY_DIR` | `/identity` | Where to persist this node's did:key + keypair |
 | `EITEL_NODE_EDC_MANAGEMENT_URL` | `http://edc-control:8182` | EDC management API URL (external or via caas/) |
 | `EITEL_NODE_EDC_API_KEY` | `change-me` | EDC management API auth key |
@@ -151,15 +151,19 @@ Each node runs as a Docker Compose stack. On startup:
 
 ### Coordinator Public Key
 
-Place the EITELCoordinator's Ed25519 public key in PEM format at `keys/coordinator_pubkey.pem`:
+Place the EITELCoordinator's Ed25519 public key in JWK format at `keys/coordinator_pubkey.jwk`:
 
-```
------BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA...base64_encoded_public_key...
------END PUBLIC KEY-----
+```json
+{
+  "crv": "Ed25519",
+  "kid": "eitel-coordinator-poc-1",
+  "kty": "OKP",
+  "x": "q2EH8Q2KuRKY-xoQAAHQhx77n4LSdyKGbrmWGtPNxaE",
+  "use": "sig"
+}
 ```
 
-**Do not commit real keys.** Only `.gitkeep` is tracked; `.gitignore` excludes `.pem` files.
+**Do not commit real keys.** Only `.gitkeep` is tracked; `.gitignore` excludes `.jwk` files.
 
 ---
 
@@ -235,9 +239,9 @@ docker inspect eitel-node-handshake | grep Mounts
 ```
 
 ### VC validation fails
-- Verify `keys/coordinator_pubkey.pem` exists and is correct PEM format
+- Verify `keys/coordinator_pubkey.jwk` exists and is valid JWK format
 - Check VC issuer matches configured coordinator DID
-- Check VC expiration date is in future
+- Check VC proof type is "JwtProof" and JWS signature is valid
 
 ### Session token errors
 - Verify `EITEL_NODE_SESSION_TOKEN_SECRET` is set to a strong value

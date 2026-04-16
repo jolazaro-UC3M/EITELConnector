@@ -1,6 +1,6 @@
 # Ignore sensitive keys and generated files
-keys/coordinator_pubkey.pem
-keys/*.pem
+keys/coordinator_pubkey.jwk
+keys/*.jwk
 *.key
 *.pub
 .env

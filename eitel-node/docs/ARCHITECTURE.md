@@ -243,12 +243,16 @@ public_key = private_key.public_key()
 
 **Coordinator Key Handling:**
 ```python
-# PoC: static PEM file (did:key)
-coordinator_pubkey_pem = Path("/keys/coordinator_pubkey.pem").read_text()
+# PoC: static JWK file (did:key)
+import json
+from jwcrypto import jwk
+with open("/keys/coordinator_pubkey.jwk", "r") as f:
+    key_data = json.load(f)
+coordinator_pubkey = jwk.JWK(**key_data)
 
 # Production: resolve from DID document
 did_document = dereference_did("did:web:coordinator.es")
-coordinator_pubkey = did_document["verificationMethod"][0]["publicKeyPem"]
+coordinator_pubkey = did_document["verificationMethod"][0]["publicKeyJwk"]
 ```
 
 **Timeline:**
