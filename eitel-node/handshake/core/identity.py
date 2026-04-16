@@ -6,7 +6,7 @@ and persists both to a JSON file in a mounted volume. On subsequent starts, the
 existing keypair is loaded.
 """
 
-import base64
+import base58
 import json
 from pathlib import Path
 from typing import NamedTuple
@@ -32,6 +32,7 @@ class NodeIdentity(NamedTuple):
         Returns:
             Base64-encoded Ed25519 signature
         """
+        import base64
         private_key = ed25519.Ed25519PrivateKey.from_private_bytes(
             self.private_key_bytes
         )
@@ -67,32 +68,35 @@ class NodeIdentity(NamedTuple):
         """
         Derive a multibase did:key from an Ed25519 public key.
 
+        Uses base58btc encoding (multibase prefix 'z').
+
         Args:
             public_key_bytes: Raw 32-byte Ed25519 public key
 
         Returns:
-            did:key:z6Mk... format string
+            did:key:z... format string
         """
         # Ed25519 public key multicodec: 0xed (1 byte) + 0x01 (1 byte) = 0xed01
-        # Multicodec is prepended to the key
         multicodec_prefix = bytes([0xed, 0x01])
         key_with_multicodec = multicodec_prefix + public_key_bytes
 
-        # Base32 (RFC4648, no padding) encoding with multibase 'z' prefix
-        # 'z' = base32 codec in multibase
-        base32_no_pad = _base32_no_pad(key_with_multicodec)
-        return f"did:key:z{base32_no_pad}"
+        # Base58btc encoding (multibase 'z' prefix)
+        return "did:key:z" + base58.b58encode(key_with_multicodec).decode("ascii")
 
     @classmethod
-    def load_or_generate(cls, identity_dir: Path) -> "NodeIdentity":
+    def load_or_generate(cls, identity_dir: Path, allow_generate: bool = True) -> "NodeIdentity":
         """
         Load existing node identity from disk, or generate and persist a new one.
 
         Args:
             identity_dir: Path to directory where identity.json is stored
+            allow_generate: If False, raise error if identity doesn't exist (prevent silent key regeneration)
 
         Returns:
             NodeIdentity instance (loaded or newly generated)
+
+        Raises:
+            RuntimeError: If identity not found and allow_generate=False
         """
         identity_dir = Path(identity_dir)
         identity_dir.mkdir(parents=True, exist_ok=True)
@@ -103,8 +107,8 @@ class NodeIdentity(NamedTuple):
             try:
                 with open(identity_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                private_bytes = base64.b64decode(data["private_key_b64"])
-                public_bytes = base64.b64decode(data["public_key_b64"])
+                private_bytes = base58.b58decode(data["private_key_b58"])
+                public_bytes = base58.b58decode(data["public_key_b58"])
                 did = data["did"]
                 return cls(
                     private_key_bytes=private_bytes,
@@ -115,6 +119,17 @@ class NodeIdentity(NamedTuple):
                 raise RuntimeError(
                     f"Failed to load identity from {identity_file}: {e}"
                 )
+
+        # Key generation
+        if not allow_generate:
+            raise RuntimeError(
+                f"Node identity not found at {identity_file} and key generation is disabled. "
+                "Run registration first to generate a new identity."
+            )
+
+        print(
+            "WARNING: Generating new node identity. Any previously issued VC will be invalid."
+        )
 
         # Generate new identity
         private_bytes, public_bytes = cls.generate_keypair()
@@ -129,10 +144,8 @@ class NodeIdentity(NamedTuple):
         with open(identity_file, "w", encoding="utf-8") as f:
             json.dump(
                 {
-                    "private_key_b64": base64.b64encode(private_bytes).decode(
-                        "ascii"
-                    ),
-                    "public_key_b64": base64.b64encode(public_bytes).decode("ascii"),
+                    "private_key_b58": base58.b58encode(private_bytes).decode("ascii"),
+                    "public_key_b58": base58.b58encode(public_bytes).decode("ascii"),
                     "did": did,
                 },
                 f,
@@ -140,19 +153,3 @@ class NodeIdentity(NamedTuple):
             )
 
         return identity
-
-
-def _base32_no_pad(data: bytes) -> str:
-    """
-    Encode bytes as base32 (RFC4648) without padding.
-
-    Args:
-        data: Bytes to encode
-
-    Returns:
-        Base32 string (lowercase, no padding)
-    """
-    # Standard base32 (RFC4648, alphabet ABCDEFGHIJKLMNOPQRSTUVWXYZ234567)
-    encoded = base64.b32encode(data).decode("ascii")
-    # Remove padding (trailing '=')
-    return encoded.rstrip("=").lower()
