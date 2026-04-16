@@ -8,3 +8,10 @@ jwcrypto==1.5.6
 base58==2.1.1
 httpx==0.26.0
 python-multipart==0.0.20
+pytest==8.3.2
+pytest-asyncio==0.24.0
+
+# Optional: for GAIA-X VP validation (best-effort check in PoC)
+# Marked optional because it's a heavy dependency for a stub implementation
+# Uncomment if full JSON-LD VP validation is needed:
+# pyld==2.1

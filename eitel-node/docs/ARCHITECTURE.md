@@ -252,7 +252,7 @@ coordinator_pubkey = jwk.JWK(**key_data)
 
 # Production: resolve from DID document
 did_document = dereference_did("did:web:coordinator.es")
-coordinator_pubkey = did_document["verificationMethod"][0]["publicKeyJwk"]
+coordinator_pubkey_jwk = did_document["verificationMethod"][0]["publicKeyJwk"]
 ```
 
 **Timeline:**

@@ -53,13 +53,14 @@ async def startup_event():
 
     # Load coordinator public key
     try:
-        coordinator_pubkey_jwk_path = Path(config.coordinator_pubkey_jwk_path)
-        if not coordinator_pubkey_jwk_path.exists():
+        coordinator_pubkey_path = Path(config.coordinator_pubkey_path)
+        if not coordinator_pubkey_path.exists():
             raise FileNotFoundError(
-                f"Coordinator public key JWK not found: {coordinator_pubkey_jwk_path}"
+                f"Coordinator public key not found: {coordinator_pubkey_path}"
             )
-        vc_verifier = EITELVCVerifier(coordinator_pubkey_jwk_path=str(coordinator_pubkey_jwk_path))
-        print("[STARTUP] Coordinator public key (JWK) loaded")
+        coordinator_pubkey = coordinator_pubkey_path.read_text()
+        vc_verifier = EITELVCVerifier(coordinator_pubkey)
+        print("[STARTUP] Coordinator public key loaded")
     except Exception as e:
         print(f"[ERROR] Failed to load coordinator public key: {e}")
         raise

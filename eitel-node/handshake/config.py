@@ -24,9 +24,9 @@ class Config(BaseSettings):
     )
 
     # Coordinator trust anchor
-    coordinator_pubkey_jwk_path: str = Field(
-        default="/keys/coordinator_pubkey.jwk",
-        description="Path to EITELCoordinator's Ed25519 public key (JWK format)",
+    coordinator_pubkey_path: str = Field(
+        default="/keys/coordinator_pubkey.pem",
+        description="Path to EITELCoordinator's Ed25519 public key (PEM format)",
     )
 
     # EDC integration
