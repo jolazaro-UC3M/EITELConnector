@@ -11,13 +11,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from eitel_node.handshake.config import load_config
-from eitel_node.handshake.core.identity import NodeIdentity
-from eitel_node.handshake.core.vc_verifier import EITELVCVerifier
-from eitel_node.handshake.core.vp_checker import GXVPChecker
-from eitel_node.handshake.core.session import SessionTokenManager
-from eitel_node.handshake.core.edc_client import EDCClient
-from eitel_node.handshake.routers import handshake, status
+from .config import load_config
+from .core.identity import NodeIdentity
+from .core.vc_verifier import EITELVCVerifier
+from .core.vp_checker import GXVPChecker
+from .core.session import SessionTokenManager
+from .core.edc_client import EDCClient
+from .routers import handshake, status
 
 
 # Create FastAPI app
