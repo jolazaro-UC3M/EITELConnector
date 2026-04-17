@@ -93,7 +93,7 @@ class SessionTokenManager:
         """
         try:
             payload = jwt.decode(
-                token, self.secret, algorithms=["HS256"], options={}
+                token, self.secret, algorithms=["HS256"], audience="handshake"
             )
 
             # Extract required claims
