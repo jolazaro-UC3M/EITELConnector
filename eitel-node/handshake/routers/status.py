@@ -5,7 +5,8 @@ Status routes: GET /status for node info and peer registry.
 from typing import Optional, List
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 try:
@@ -17,6 +18,7 @@ except ImportError:
 
 
 router = APIRouter(tags=["status"])
+security = HTTPBearer(auto_error=False)
 
 
 # Response models
@@ -50,14 +52,16 @@ class TicketResponse(BaseModel):
 # Dependencies (injected on router initialization)
 
 
-def init_status_routes(session_manager: SessionTokenManager) -> None:
+def init_status_routes(session_manager: SessionTokenManager, node_identity=None) -> None:
     """
     Initialize status router with dependencies.
 
     Args:
         session_manager: JWT token manager for ticket generation
+        node_identity: Node identity object
     """
     router._session_manager = session_manager
+    router._node_identity = node_identity
     # TODO: In production, these would come from a persistent state store
     router._last_handshake = None
     router._last_gx_vp_status = "absent"
@@ -65,14 +69,33 @@ def init_status_routes(session_manager: SessionTokenManager) -> None:
 
 
 @router.get("/status", response_model=StatusResponse)
-async def get_status() -> StatusResponse:
+async def get_status(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> StatusResponse:
     """
     Get node status: identity, handshake history, peer registry.
 
     Returns:
         Node status including DID, last handshake, and registered peers
+
+    Raises:
+        HTTPException: 401 if authorization is missing or invalid
     """
     try:
+        if not credentials:
+            raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+        token = credentials.credentials
+        session_manager = router._session_manager
+
+        # Validate token
+        try:
+            claims = session_manager.validate_token(token)
+        except InvalidTokenError as e:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+        # Validate audience
+        if claims.audience != "handshake":
+            raise HTTPException(status_code=401, detail="Invalid audience")
+
         node_identity = router._node_identity
         last_handshake = getattr(router, "_last_handshake", None)
         gx_vp_status = getattr(router, "_last_gx_vp_status", "absent")
@@ -95,6 +118,8 @@ async def get_status() -> StatusResponse:
             gx_vp_status=gx_vp_status,
             registered_peers=peers,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Status query failed: {str(e)}")
 
@@ -135,6 +160,10 @@ async def get_ticket(authorization: Optional[str] = Header(None)) -> TicketRespo
             claims = session_manager.validate_token(token)
         except InvalidTokenError as e:
             raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
+        # Validate audience
+        if claims.audience != "handshake":
+            raise HTTPException(status_code=401, detail="Invalid audience")
 
         # Issue ticket
         ticket = session_manager.issue_ticket(token)
