@@ -104,8 +104,7 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
         session_manager=session_manager,
         edc_dsp_endpoint="http://localhost:11003/api/v1/dsp",
     )
-    status.init_status_routes(session_manager=session_manager)
-    status.router._node_identity = node_identity
+    status.init_status_routes(session_manager=session_manager, node_identity=node_identity)
 
     return TestClient(app)
 
@@ -231,8 +230,17 @@ class TestStatusEndpoint:
     """Tests for the /status endpoint."""
 
     def test_status_endpoint(self, test_client):
-        """Status endpoint returns node information."""
-        response = test_client.get("/status")
+        """Status endpoint returns node information when authenticated."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
+        # Issue a valid token
+        token = session_manager.issue_token(
+            subject=node_identity.did, audience="handshake", issuer=node_identity.did
+        )
+
+        headers = {"Authorization": f"Bearer {token}"}
+        response = test_client.get("/status", headers=headers)
         assert response.status_code == 200
         body = response.json()
         assert "node_did" in body
@@ -240,8 +248,30 @@ class TestStatusEndpoint:
         assert "last_handshake" in body
         assert "gx_vp_status" in body
 
+    def test_status_requires_authentication(self, test_client):
+        """Status endpoint requires authentication."""
+        response = test_client.get("/status")
+        assert response.status_code == 401
+
+    def test_status_rejects_wrong_audience(self, test_client):
+        """Status endpoint rejects tokens with wrong audience."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
+        # Issue a token with wrong audience
+        token = session_manager.issue_token(
+            subject=node_identity.did, audience="wrong", issuer=node_identity.did
+        )
+
+        headers = {"Authorization": f"Bearer {token}"}
+        response = test_client.get("/status", headers=headers)
+        assert response.status_code == 401
+
     def test_status_endpoint_after_handshake(self, test_client, coordinator_keys, temp_identity_dir):
-        """Status endpoint reflects handshake information."""
+        """Status endpoint reflects handshake information when authenticated."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
         # Complete a handshake first
         peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_handshake")
 
@@ -267,14 +297,55 @@ class TestStatusEndpoint:
         )
         assert handshake_response.status_code == 200
 
+        # Issue a valid token for authentication
+        token = session_manager.issue_token(
+            subject=node_identity.did, audience="handshake", issuer=node_identity.did
+        )
+
         # Check status now has peer registered
-        response = test_client.get("/status")
+        headers = {"Authorization": f"Bearer {token}"}
+        response = test_client.get("/status", headers=headers)
         assert response.status_code == 200
         body = response.json()
         assert "node_did" in body
         assert "registered_peers" in body
         assert len(body["registered_peers"]) > 0
         assert body["registered_peers"][0]["did"] == peer_identity.did
+
+
+class TestTicketEndpoint:
+    """Tests for the /handshake/ticket endpoint."""
+
+    def test_ticket_accepts_valid_token_with_handshake_audience(self, test_client):
+        """Ticket endpoint accepts tokens with handshake audience."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
+        # Issue a valid token with correct audience
+        token = session_manager.issue_token(
+            subject=node_identity.did, audience="handshake", issuer=node_identity.did
+        )
+
+        headers = {"Authorization": f"Bearer {token}"}
+        response = test_client.get("/handshake/ticket", headers=headers)
+        assert response.status_code == 200
+        body = response.json()
+        assert "ticket" in body
+        assert body["expires_in"] == 30
+
+    def test_ticket_rejects_wrong_audience(self, test_client):
+        """Ticket endpoint rejects tokens with wrong audience."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
+        # Issue a token with wrong audience
+        token = session_manager.issue_token(
+            subject=node_identity.did, audience="wrong", issuer=node_identity.did
+        )
+
+        headers = {"Authorization": f"Bearer {token}"}
+        response = test_client.get("/handshake/ticket", headers=headers)
+        assert response.status_code == 401
 
 
 class TestEndToEnd:

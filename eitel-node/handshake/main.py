@@ -106,10 +106,7 @@ async def startup_event():
         edc_dsp_endpoint=config.edc_dsp_endpoint,
     )
 
-    status.init_status_routes(session_manager=session_manager)
-
-    # Also pass node_identity to status router for /status endpoint
-    status.router._node_identity = node_identity  # type: ignore
+    status.init_status_routes(session_manager=session_manager, node_identity=node_identity)
 
     print("[STARTUP] Handshake service initialized successfully")
 
