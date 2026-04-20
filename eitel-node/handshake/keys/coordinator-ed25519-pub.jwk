@@ -1,0 +1,7 @@
+{
+  "crv": "Ed25519",
+  "kid": "eitel-coordinator-poc-1",
+  "kty": "OKP",
+  "x": "q2EH8Q2KuRKY-xoQAAHQhx77n4LSdyKGbrmWGtPNxaE",
+  "use": "sig"
+}
