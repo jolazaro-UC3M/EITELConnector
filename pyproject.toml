@@ -7,8 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "base58>=2.1.1",
     "fastapi>=0.136.0",
-    "jwt>=1.4.0",
+    "httpx>=0.28.1",
+    "PyJWT>=2.8.0",
+    "jwcrypto>=1.5.7",
     "pydantic>=2.13.2",
     "pydantic-settings>=2.13.1",
+    "pytest>=9.0.3",
     "uvicorn>=0.44.0",
 ]
