@@ -19,7 +19,7 @@ try:
     from .core.vp_checker import GXVPChecker
     from .core.session import SessionTokenManager
     from .core.edc_client import EDCClient
-    from .routers import handshake, status
+    from .routers import handshake, status, transfer
 except ImportError:
     # Fall back to absolute imports (when run as a script)
     from config import load_config
@@ -28,7 +28,7 @@ except ImportError:
     from core.vp_checker import GXVPChecker
     from core.session import SessionTokenManager
     from core.edc_client import EDCClient
-    from routers import handshake, status
+    from routers import handshake, status, transfer
 
 
 # Create FastAPI app
@@ -108,6 +108,9 @@ async def startup_event():
 
     status.init_status_routes(session_manager=session_manager, node_identity=node_identity)
 
+    transfer.init_transfer_routes(session_manager=session_manager)
+    print("[STARTUP] Transfer router initialized")
+
     print("[STARTUP] Handshake service initialized successfully")
 
 
@@ -133,6 +136,7 @@ async def health_check():
 # Mount routers
 app.include_router(handshake.router)
 app.include_router(status.router)
+app.include_router(transfer.router)
 
 
 # Main entry point
