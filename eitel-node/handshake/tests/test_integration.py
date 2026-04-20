@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from main import app
 from config import Config
 from core.identity import NodeIdentity
+from routers import transfer
 
 
 @pytest.fixture
@@ -105,6 +106,7 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
         edc_dsp_endpoint="http://localhost:11003/api/v1/dsp",
     )
     status.init_status_routes(session_manager=session_manager, node_identity=node_identity)
+    transfer.init_transfer_routes(session_manager=session_manager)
 
     return TestClient(app)
 
@@ -384,3 +386,232 @@ class TestEndToEnd:
         assert len(session_token) > 0
         # JWT tokens have three parts separated by dots
         assert session_token.count(".") == 2
+
+
+class TestTransferEndpointIntegration:
+    """Integration tests for the /transfer/download endpoint."""
+
+    @pytest.fixture
+    def transfer_session_token(self, test_client):
+        """Valid session token for transfer testing."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
+        return session_manager.issue_token(
+            subject=node_identity.did, audience="handshake", issuer=node_identity.did
+        )
+
+    def test_transfer_requires_authentication(self, test_client):
+        """Transfer endpoint requires authentication."""
+        response = test_client.post(
+            "/transfer/download", json={"file_path": "test.json"}
+        )
+        assert response.status_code == 401
+
+    def test_transfer_requires_bearer_token(self, test_client, transfer_session_token):
+        """Transfer endpoint requires Bearer token format."""
+        # Try with Basic auth instead
+        response = test_client.post(
+            "/transfer/download",
+            json={"file_path": "test.json"},
+            headers={"Authorization": "Basic dXNlcjpwYXNz"},
+        )
+        assert response.status_code == 401
+
+    def test_transfer_rejects_wrong_audience(self, test_client):
+        """Transfer endpoint rejects tokens with wrong audience."""
+        session_manager = test_client.app.state.session_manager
+        node_identity = test_client.app.state.node_identity
+
+        # Issue token with wrong audience
+        wrong_audience_token = session_manager.issue_token(
+            subject=node_identity.did, audience="wrong", issuer=node_identity.did
+        )
+
+        response = test_client.post(
+            "/transfer/download",
+            json={"file_path": "test.json"},
+            headers={"Authorization": f"Bearer {wrong_audience_token}"},
+        )
+        assert response.status_code == 401
+        assert "audience" in response.json()["detail"].lower()
+
+    def test_transfer_rejects_path_traversal(self, test_client, transfer_session_token):
+        """Transfer endpoint rejects paths with parent directory traversal."""
+        response = test_client.post(
+            "/transfer/download",
+            json={"file_path": "../../etc/passwd"},
+            headers={"Authorization": f"Bearer {transfer_session_token}"},
+        )
+        assert response.status_code == 400
+        assert "parent directory traversal" in response.json()["detail"]
+
+    def test_transfer_validates_file_path_required(self, test_client, transfer_session_token):
+        """Transfer endpoint requires file_path in request body."""
+        response = test_client.post(
+            "/transfer/download",
+            json={},  # Missing file_path
+            headers={"Authorization": f"Bearer {transfer_session_token}"},
+        )
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize(
+        "file_path,expected_in_url",
+        [
+            ("data.json", "/files/data.json"),
+            ("/data.json", "/files/data.json"),  # Leading slash stripped
+            ("folder/data.json", "/files/folder/data.json"),
+            ("/folder/subfolder/data.csv", "/files/folder/subfolder/data.csv"),
+        ],
+    )
+    def test_transfer_path_variations(
+        self, test_client, transfer_session_token, file_path, expected_in_url
+    ):
+        """Transfer endpoint handles various path formats correctly."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        with patch("routers.transfer.httpx.AsyncClient") as mock_client_class:
+
+            async def async_iter_bytes():
+                yield b'{"test": "data"}'
+
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "application/json"}
+            mock_response.aiter_bytes = async_iter_bytes
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+
+            response = test_client.post(
+                "/transfer/download",
+                json={"file_path": file_path},
+                headers={"Authorization": f"Bearer {transfer_session_token}"},
+            )
+
+            # Verify the request was made with the correct sanitized URL
+            mock_client.get.assert_called_once()
+            call_url = mock_client.get.call_args[0][0]
+            assert expected_in_url in call_url
+
+    def test_transfer_sets_content_disposition_header(
+        self, test_client, transfer_session_token
+    ):
+        """Transfer endpoint sets Content-Disposition header with filename."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        with patch("routers.transfer.httpx.AsyncClient") as mock_client_class:
+
+            async def async_iter_bytes():
+                yield b'{"data": "test"}'
+
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "application/json"}
+            mock_response.aiter_bytes = async_iter_bytes
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+
+            response = test_client.post(
+                "/transfer/download",
+                json={"file_path": "myfile.json"},
+                headers={"Authorization": f"Bearer {transfer_session_token}"},
+            )
+
+            assert response.status_code == 200
+            assert "Content-Disposition" in response.headers
+            assert "attachment" in response.headers["Content-Disposition"]
+            assert "myfile.json" in response.headers["Content-Disposition"]
+
+    def test_transfer_copies_content_type_from_copyparty(
+        self, test_client, transfer_session_token
+    ):
+        """Transfer endpoint preserves Content-Type from Copyparty."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        with patch("routers.transfer.httpx.AsyncClient") as mock_client_class:
+
+            async def async_iter_bytes():
+                yield b"col1,col2\n1,2"
+
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "text/csv"}
+            mock_response.aiter_bytes = async_iter_bytes
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+
+            response = test_client.post(
+                "/transfer/download",
+                json={"file_path": "data.csv"},
+                headers={"Authorization": f"Bearer {transfer_session_token}"},
+            )
+
+            assert response.status_code == 200
+            assert "text/csv" in response.headers["Content-Type"]
+
+    def test_transfer_handshake_then_download_flow(
+        self, test_client, coordinator_keys, temp_identity_dir
+    ):
+        """Full flow: handshake → get token → transfer download."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        # 1. Complete handshake to get session token
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "transfer_test")
+
+        vc_payload = {
+            "@context": ["https://www.w3.org/2018/credentials/v1"],
+            "type": ["VerifiableCredential"],
+            "issuer": "did:key:z6Mku...Coordinator",
+            "credentialSubject": {"id": peer_identity.did},
+        }
+
+        key_obj = jwk.JWK.from_pyca(coordinator_keys["private_key"])
+        protected_header = {"alg": "EdDSA", "typ": "JWT"}
+        jws_token = jws.JWS(json.dumps(vc_payload).encode("utf-8"))
+        jws_token.add_signature(key_obj, protected=json.dumps(protected_header))
+        serialized_jws = jws_token.serialize(compact=True)
+
+        vc = vc_payload.copy()
+        vc["proof"] = {"type": "JwtProof", "jwt": serialized_jws}
+
+        handshake_response = test_client.post(
+            "/handshake/initiate", json={"did": peer_identity.did, "eitel_vc": vc}
+        )
+        assert handshake_response.status_code == 200
+        handshake_token = handshake_response.json()["session_token"]
+
+        # 2. Use handshake token in transfer request
+        with patch("routers.transfer.httpx.AsyncClient") as mock_client_class:
+
+            async def async_iter_bytes():
+                yield b'{"result": "success"}'
+
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": "application/json"}
+            mock_response.aiter_bytes = async_iter_bytes
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+
+            transfer_response = test_client.post(
+                "/transfer/download",
+                json={"file_path": "test-dataset.json"},
+                headers={"Authorization": f"Bearer {handshake_token}"},
+            )
+
+            # 3. Verify successful download
+            assert transfer_response.status_code == 200
+            assert "attachment" in transfer_response.headers["Content-Disposition"]
+
