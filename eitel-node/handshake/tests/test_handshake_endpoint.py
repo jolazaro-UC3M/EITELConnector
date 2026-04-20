@@ -45,36 +45,6 @@ class TestHandshakeEndpointIntegration:
         # This test passes to allow CI/CD to run test suite
         assert True
 
-    @pytest.mark.skip(reason="Requires full app setup and fixtures")
-    def test_valid_handshake_returns_token(self):
-        """Valid handshake request returns session token."""
-        pass
-
-    @pytest.mark.skip(reason="Requires full app setup and fixtures")
-    def test_handshake_invalid_vc_fails(self):
-        """Handshake with invalid VC fails."""
-        pass
-
-    @pytest.mark.skip(reason="Requires full app setup and fixtures")
-    def test_handshake_invalid_signature_fails(self):
-        """Handshake with invalid signature fails."""
-        pass
-
-    @pytest.mark.skip(reason="Requires full app setup and fixtures")
-    def test_handshake_did_mismatch_fails(self):
-        """Handshake with DID mismatch fails."""
-        pass
-
-    @pytest.mark.skip(reason="Requires full app setup and fixtures")
-    def test_status_with_valid_token(self):
-        """Can access /status with valid session token."""
-        pass
-
-    @pytest.mark.skip(reason="Requires full app setup and fixtures")
-    def test_status_with_invalid_token_fails(self):
-        """Invalid token fails."""
-        pass
-
 
 class TestHandshakeDataModels:
     """Test handshake request/response data model validation."""
