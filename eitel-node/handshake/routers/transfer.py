@@ -110,7 +110,7 @@ async def download_file(
             )
 
         # Construct Copyparty URL
-        full_url = f"{_copyparty_url}/files/{file_path}"
+        full_url = f"{_copyparty_url}/files/{file_path}?pw={_copyparty_password}"
 
         # Extract filename for Content-Disposition
         filename = file_path.split("/")[-1] if file_path else "file"
@@ -118,10 +118,7 @@ async def download_file(
         # Proxy request to Copyparty
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                resp = await client.get(
-                    full_url,
-                    auth=(_copyparty_user, _copyparty_password),
-                )
+                resp = await client.get(full_url)
 
                 if resp.status_code == 404:
                     raise HTTPException(status_code=404, detail="File not found in Copyparty")
