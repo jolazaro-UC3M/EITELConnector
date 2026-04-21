@@ -13,13 +13,13 @@ services:
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-change-me}
       - EITEL_NODE_EDC_DSP_ENDPOINT=${EITEL_NODE_EDC_DSP_ENDPOINT:-http://localhost:11003/api/v1/dsp}
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
-      - EITEL_NODE_SESSION_TOKEN_SECRET=${EITEL_NODE_SESSION_TOKEN_SECRET}
+      - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-P-change-me
       - COPYPARTY_URL=http://copyparty:3923
       - COPYPARTY_USER=eitel
       - COPYPARTY_PASSWORD=${COPYPARTY_PASSWORD:-changeme}
     volumes:
       - ./keys:/keys:ro
-      - node_identity_producer:/identity
+      - ./identity/producer:/identity:rw
     networks:
       - eitel-producer
     healthcheck:
@@ -40,14 +40,12 @@ services:
       - eitel-producer
     environment:
       - COPYPARTY_PASSWORD=${COPYPARTY_PASSWORD:-changeme}
-    command: >
-      sh -c "pip install -q copyparty && python -m copyparty
-        -p 3923
-        -v /data:/files:rw,eitel
-        -a eitel:${COPYPARTY_PASSWORD:-changeme}
-        -e2dsa"
+    command:
+      - sh
+      - -c
+      - "pip install -q copyparty && python3 -m copyparty -p 3923 -v /data:/files:rw,eitel -a eitel:${COPYPARTY_PASSWORD:-changeme} -e2dsa"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3923/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3923/').read()"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -59,5 +57,4 @@ networks:
     internal: false
 
 volumes:
-  node_identity_producer:
   copyparty_data_producer:
