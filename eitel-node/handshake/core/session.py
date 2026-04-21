@@ -4,16 +4,54 @@ Session token management: JWT issuance and validation for HTTP and WebSocket.
 
 from __future__ import annotations
 
+import base58
 import time
 from typing import NamedTuple, Optional
 
 import jwt
+from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives import serialization
 
 
 class InvalidTokenError(Exception):
     """Token validation failed."""
 
     pass
+
+
+def extract_pubkey_from_did(did: str) -> bytes:
+    """
+    Extract Ed25519 public key from a did:key:z... identifier.
+
+    Args:
+        did: Multibase did:key identifier (e.g., "did:key:z6Mk...")
+
+    Returns:
+        Raw 32-byte Ed25519 public key
+
+    Raises:
+        ValueError: If DID format is invalid
+    """
+    if not did.startswith("did:key:z"):
+        raise ValueError(f"Invalid DID format: {did}")
+
+    # Extract base58btc-encoded portion after "did:key:z"
+    b58_encoded = did[len("did:key:z"):]
+
+    try:
+        # Decode base58
+        decoded = base58.b58decode(b58_encoded)
+
+        # Extract multicodec prefix (0xed01 for Ed25519)
+        if len(decoded) < 34 or decoded[0] != 0xed or decoded[1] != 0x01:
+            raise ValueError(f"Invalid Ed25519 DID format: {did}")
+
+        # Extract the 32-byte public key (skip multicodec prefix)
+        public_key_bytes = decoded[2:34]
+        return public_key_bytes
+    except Exception as e:
+        raise ValueError(f"Failed to extract public key from DID: {e}")
+
 
 
 class SessionTokenClaims(NamedTuple):
@@ -30,23 +68,23 @@ class SessionTokenManager:
     """
     JWT issuance and validation for HTTP and WebSocket authentication.
 
-    Uses HMAC-SHA256 for signing. Token format is standard JWT with claims:
+    Uses Ed25519 for signing. Token format is standard JWT with claims:
     - sub: subject (peer DID)
     - aud: audience (gate token purpose)
     - exp: expiration timestamp
     - iat: issuance timestamp
-    - iss: optional issuer (this node's DID)
+    - iss: issuer DID (this node's DID)
     """
 
-    def __init__(self, secret: str, ttl_seconds: int = 3600):
+    def __init__(self, node_identity: NodeIdentity, ttl_seconds: int = 3600):
         """
         Initialize token manager.
 
         Args:
-            secret: Secret key for HMAC-SHA256 signing (must be strong)
+            node_identity: This node's cryptographic identity (contains Ed25519 key)
             ttl_seconds: Token TTL in seconds (default 1 hour)
         """
-        self.secret = secret
+        self.node_identity = node_identity
         self.ttl_seconds = ttl_seconds
         # Track one-time WebSocket upgrade tickets (not persistent across restarts)
         self._used_tickets: set[str] = set()
@@ -55,15 +93,15 @@ class SessionTokenManager:
         self, subject: str, audience: str = "handshake", issuer: Optional[str] = None
     ) -> str:
         """
-        Issue a JWT session token.
+        Issue a JWT session token signed with Ed25519.
 
         Args:
             subject: Subject (peer DID)
             audience: Audience gate (e.g., "handshake")
-            issuer: Optional issuer DID
+            issuer: Optional issuer DID (uses self.node_identity.did if not provided)
 
         Returns:
-            JWT token string
+            JWT token string signed with Ed25519
         """
         now = int(time.time())
         payload = {
@@ -71,16 +109,22 @@ class SessionTokenManager:
             "aud": audience,
             "exp": now + self.ttl_seconds,
             "iat": now,
+            "iss": issuer or self.node_identity.did,
         }
-        if issuer:
-            payload["iss"] = issuer
 
-        token = jwt.encode(payload, self.secret, algorithm="HS256")
+        # Sign with Ed25519 private key
+        private_key = ed25519.Ed25519PrivateKey.from_private_bytes(
+            self.node_identity.private_key_bytes
+        )
+        token = jwt.encode(payload, private_key, algorithm="EdDSA")
         return token
 
     def validate_token(self, token: str) -> SessionTokenClaims:
         """
-        Decode and validate a JWT token.
+        Decode and validate a JWT token using issuer's Ed25519 public key.
+
+        Extracts issuer DID from token claims and verifies signature using the
+        issuer's Ed25519 public key (derived from DID).
 
         Args:
             token: JWT token string
@@ -89,11 +133,25 @@ class SessionTokenManager:
             SessionTokenClaims with parsed claims
 
         Raises:
-            InvalidTokenError: If token is invalid, expired, or malformed
+            InvalidTokenError: If token is invalid, expired, or signature doesn't verify
         """
         try:
+            # First, decode token WITHOUT verification to extract issuer
+            unverified = jwt.decode(token, options={"verify_signature": False})
+            token_issuer = unverified.get("iss")
+
+            if not token_issuer:
+                raise InvalidTokenError("Token missing issuer (iss) claim")
+
+            # Extract public key from issuer DID
+            public_key_bytes = extract_pubkey_from_did(token_issuer)
+
+            # Recreate public key object and verify signature
+            public_key = ed25519.Ed25519PublicKey.from_public_bytes(public_key_bytes)
+
+            # PyJWT with EdDSA should work now
             payload = jwt.decode(
-                token, self.secret, algorithms=["HS256"], audience="handshake"
+                token, public_key, algorithms=["EdDSA"], audience="handshake"
             )
 
             # Extract required claims
@@ -125,6 +183,36 @@ class SessionTokenManager:
             raise InvalidTokenError("Token expired")
         except Exception as e:
             raise InvalidTokenError(f"Token validation error: {e}")
+
+    def validate_token_with_issuer_pubkey(
+        self, token: str, issuer_did: Optional[str] = None
+    ) -> SessionTokenClaims:
+        """
+        Validate a JWT token using its issuer's public key (Ed25519).
+
+        This method is deprecated - use validate_token() instead, which now
+        automatically validates using the issuer's public key.
+
+        Args:
+            token: JWT token string
+            issuer_did: Optional expected issuer DID (for explicit validation)
+
+        Returns:
+            SessionTokenClaims with parsed claims
+
+        Raises:
+            InvalidTokenError: If token is invalid, signature doesn't verify, or issuer mismatch
+        """
+        # Just delegate to validate_token since it now handles Ed25519 verification
+        claims = self.validate_token(token)
+
+        # If expected issuer provided, verify it matches
+        if issuer_did and claims.issuer != issuer_did:
+            raise InvalidTokenError(
+                f"Token issuer mismatch: expected {issuer_did}, got {claims.issuer}"
+            )
+
+        return claims
 
     def issue_ticket(self, token: str) -> str:
         """

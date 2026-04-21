@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 
 try:
@@ -48,6 +49,19 @@ app.add_middleware(
 )
 
 
+# Exception handlers
+from core.session import InvalidTokenError
+
+
+@app.exception_handler(InvalidTokenError)
+async def invalid_token_exception_handler(request, exc):
+    """Convert InvalidTokenError to 401 HTTP response."""
+    return JSONResponse(
+        status_code=401,
+        content={"detail": f"Invalid token: {str(exc)}"},
+    )
+
+
 # Initialize components on startup
 @app.on_event("startup")
 async def startup_event():
@@ -80,7 +94,7 @@ async def startup_event():
 
     # Initialize session token manager
     session_manager = SessionTokenManager(
-        secret=config.session_token_secret, ttl_seconds=config.session_token_ttl
+        node_identity=node_identity, ttl_seconds=config.session_token_ttl
     )
     print(f"[STARTUP] Session token TTL: {config.session_token_ttl}s")
 
@@ -131,6 +145,39 @@ async def health_check():
         "service": "eitel-node-handshake",
         "node_did": app.state.node_identity.did if hasattr(app.state, "node_identity") else None,
     }
+
+
+# Public key endpoint (for cross-node token validation)
+@app.get("/public-key")
+async def get_public_key():
+    """
+    Get this node's Ed25519 public key in JWK format.
+
+    Returns JWK representation of the node's Ed25519 public key for cross-node
+    token signature validation.
+    """
+    import base64
+    import json
+
+    if not hasattr(app.state, "node_identity"):
+        return {"error": "Node not initialized"}, 503
+
+    node_identity = app.state.node_identity
+    public_key_bytes = node_identity.public_key_bytes
+
+    # Convert to JWK format (RFC 8037 for Ed25519)
+    # Base64url encode without padding
+    public_key_b64 = base64.urlsafe_b64encode(public_key_bytes).decode("ascii").rstrip("=")
+
+    jwk = {
+        "kty": "OKP",  # Octet Key Pair
+        "crv": "Ed25519",  # Curve
+        "x": public_key_b64,  # Public key
+        "use": "sig",  # For signatures
+        "alg": "EdDSA",  # Algorithm
+    }
+
+    return jwk
 
 
 # Mount routers

@@ -31,8 +31,8 @@ def test_client_transfer(session_manager, monkeypatch):
     import sys
     from pathlib import Path
 
-    # Add parent directory to path
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+    # Add package parent to path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
     # Set environment variables
     monkeypatch.setenv("COPYPARTY_URL", "http://copyparty:3923")
@@ -40,7 +40,7 @@ def test_client_transfer(session_manager, monkeypatch):
     monkeypatch.setenv("COPYPARTY_PASSWORD", "changeme")
 
     # Import and create app
-    from main import app
+    from handshake.main import app
 
     # Initialize transfer router
     transfer.init_transfer_routes(session_manager=session_manager)
