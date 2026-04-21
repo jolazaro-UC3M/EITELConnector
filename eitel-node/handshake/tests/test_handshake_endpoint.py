@@ -5,15 +5,7 @@ Note: These tests require the full FastAPI application to be set up.
 For unit testing without the app, see core/ module tests.
 """
 
-import json
-import tempfile
-from pathlib import Path
-from contextlib import contextmanager
 
-import pytest
-from fastapi.testclient import TestClient
-from jwcrypto import jws, jwk
-from cryptography.hazmat.primitives.asymmetric import ed25519
 
 # These would be imported from the actual app when running full integration tests
 # For now, provide helper functions that can be extended

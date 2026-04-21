@@ -2,7 +2,6 @@
 EITEL handshake routes: POST /handshake/initiate for dual-VC trust establishment.
 """
 
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException

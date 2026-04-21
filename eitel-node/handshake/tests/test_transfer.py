@@ -2,14 +2,12 @@
 Unit tests for the file transfer router: POST /transfer/download
 """
 
-import json
-import tempfile
 from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from core.session import SessionTokenManager, InvalidTokenError
+from core.session import SessionTokenManager
 from routers import transfer
 
 
@@ -171,7 +169,7 @@ class TestTransferDownloadEndpointPathSanitization:
         mock_client.__aexit__ = AsyncMock(return_value=None)
         mock_client_class.return_value = mock_client
 
-        response = test_client_transfer.post(
+        _ = test_client_transfer.post(
             "/transfer/download",
             json={"file_path": "/path/to/file.json"},
             headers={"Authorization": f"Bearer {valid_token}"},

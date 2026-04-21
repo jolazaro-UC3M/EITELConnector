@@ -52,7 +52,6 @@ def temp_identity_dir():
 @pytest.fixture
 def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
     """Create test client with properly initialized app state."""
-    from config import Config
     from core.identity import NodeIdentity
     from core.vc_verifier import EITELVCVerifier
     from core.vp_checker import GXVPChecker
@@ -485,7 +484,7 @@ class TestTransferEndpointIntegration:
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
 
-            response = test_client.post(
+            _ = test_client.post(
                 "/transfer/download",
                 json={"file_path": file_path},
                 headers={"Authorization": f"Bearer {transfer_session_token}"},
