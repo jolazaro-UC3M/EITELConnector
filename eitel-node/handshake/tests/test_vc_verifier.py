@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 from jwcrypto import jws, jwk
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
 
 from core.vc_verifier import EITELVCVerifier
 from core.identity import NodeIdentity

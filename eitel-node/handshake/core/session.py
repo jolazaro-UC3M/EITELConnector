@@ -140,7 +140,7 @@ class SessionTokenManager:
             InvalidTokenError: If token is invalid
         """
         # Validate token first
-        claims = self.validate_token(token)
+        _ = self.validate_token(token)
 
         # Generate ticket: base64(token_hash + timestamp)
         # Ticket is single-use and short-lived (30 seconds)

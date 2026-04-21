@@ -120,7 +120,7 @@ class TestLoadOrGenerate:
         """Generated identity is persisted to node.json."""
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
-            identity1 = NodeIdentity.load_or_generate(tmpdir_path)
+            _ = NodeIdentity.load_or_generate(tmpdir_path)
 
             # node.json should exist
             node_file = tmpdir_path / "node.json"
