@@ -691,6 +691,9 @@ class TestTransferEndpointIntegration:
             assert transfer_response.status_code == 200
             assert transfer_response.content == expected_bytes
             assert expected_content_type in transfer_response.headers["Content-Type"]
+            assert "Content-Disposition" in transfer_response.headers
+            assert "attachment" in transfer_response.headers["Content-Disposition"]
+            assert "test-dataset.json" in transfer_response.headers["Content-Disposition"]
 
 
 class TestPublicKeyEndpoint:
