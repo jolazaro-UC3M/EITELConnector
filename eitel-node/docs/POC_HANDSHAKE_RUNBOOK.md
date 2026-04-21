@@ -52,6 +52,34 @@ Each node runs two Docker containers:
 
 ---
 
+## Automated Execution (One Command)
+
+You can run the complete flow (Coordinator startup, both compose stacks, VC issuance,
+P→C handshake, C→P handshake, and peer verification) with:
+
+```powershell
+cd C:\Users\Jorge\Documents\star\EITELConnector\eitel-node
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-handshake.ps1
+```
+
+Useful options:
+
+```powershell
+# Coordinator already running on :8000
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-handshake.ps1 -SkipCoordinatorStart
+
+# Skip docker image rebuilds for faster iterations
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-handshake.ps1 -NoBuild
+
+# Teardown producer/consumer containers at the end
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-handshake.ps1 -TeardownOnSuccess
+```
+
+The script writes a JSON artifact in `eitel-node/.runbook-artifacts/` with the
+execution timestamp, both DIDs, handshake statuses, and verification result.
+
+---
+
 ## Critical: Docker Compose Project Naming
 
 Both compose files (`docker-compose.producer.yml` and
@@ -109,17 +137,20 @@ Leave this terminal open and untouched for the entire session.
 
 Node P represents the data-producing participant. It runs on port 8080.
 
-#### 1. Set the token secret
+#### 1. Update docker-compose.producer.yml
 
-This secret is used to sign session tokens issued by Node P after a
-successful handshake. It must be set before the container starts.
+The session token secret must be hardcoded in the docker-compose file. Edit
+`docker-compose.producer.yml` and update the `EITEL_NODE_SESSION_TOKEN_SECRET`
+environment variable in the handshake service:
 
-```powershell
-$env:EITEL_NODE_SESSION_TOKEN_SECRET = "poc-secret-node-P-change-me"
+```yaml
+environment:
+  - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-P-change-me
 ```
 
-> In production, use a cryptographically strong random value and never
-> share it between nodes.
+> Do NOT use `$env:` syntax or `.env` files with env_file directive as they
+> do not reliably pass environment variables to containers. Hardcoding in the
+> docker-compose file is the most reliable approach for this PoC.
 
 #### 2. Start the containers
 
@@ -187,10 +218,14 @@ Leave Terminal 2 open. `$NODE_P_DID` and `$VC_P` live here.
 Node C represents the data-consuming participant. It runs on port 8081.
 Follow the same sequence as Terminal 2, with consumer values.
 
-#### 1. Set the token secret
+#### 1. Update docker-compose.consumer.yml
 
-```powershell
-$env:EITEL_NODE_SESSION_TOKEN_SECRET = "poc-secret-node-C-change-me"
+Edit `docker-compose.consumer.yml` and update the `EITEL_NODE_SESSION_TOKEN_SECRET`
+environment variable in the handshake service:
+
+```yaml
+environment:
+  - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-C-change-me
 ```
 
 #### 2. Start the containers
@@ -407,11 +442,14 @@ If in doubt, `Write-Host` the token first to confirm it is populated.
 
 ### 1. DIDs are not persistent
 
-Each node generates a new DID at container startup. If you bring the
-containers down and up again, the DIDs change and a new handshake must be
-performed from scratch. To fix this, the identity directory inside the
-container must be mounted to a named Docker volume that survives restarts.
-Not implemented in the current PoC compose files.
+**STATUS: RESOLVED in v0.1.1**
+
+DIDs now persist across container restarts through host filesystem volume mounts. The identity
+directory is mounted to `./identity/producer` and `./identity/consumer` (host paths), ensuring
+DIDs survive container lifecycle events. Do NOT run `docker compose down -v` or `docker volume prune`
+as they will delete persisted identities.
+
+If you delete the `./identity/` directory manually, a new DID will be generated on next startup.
 
 ### 2. GAIA-X VP is absent
 
@@ -420,18 +458,107 @@ The handshake accepts `gaia_x_vp: null` for the PoC. Both nodes report
 each node must present a real GAIA-X Verifiable Presentation signed by an
 accredited GAIA-X Digital Clearing House (GXDCH) issuer.
 
+**Future Integration:** Set `EITEL_NODE_GXDCH_ENDPOINT` environment variable to point to a GXDCH
+endpoint (e.g., `https://gxdch.eiteldata.eu/vp/issue`). Configuration template:
+
+```yaml
+environment:
+  - EITEL_NODE_GXDCH_ENDPOINT=https://gxdch.eiteldata.eu/vp/issue
+```
+
 ### 3. Copyparty healthcheck reports unhealthy
 
-The Docker healthcheck for the copyparty containers uses `curl`, which is
-not installed in the Python slim base image. The containers function
-correctly despite the `(unhealthy)` label. Fix: add `curl` to the
-copyparty Dockerfile or replace the healthcheck with a Python-based probe.
+**STATUS: RESOLVED in v0.1.1**
+
+Healthcheck now uses Python HTTP client instead of missing `curl` binary. Both copyparty containers
+report `Up X minutes` (healthy) when running.
+
+### 4. Session Token Validation Issue (CURRENT BLOCKER)
+
+**STATUS: RESOLVED in v0.1.1**
+
+Cross-node token validation now works. Each handshake includes the issuer node's DID in the token
+claims. The `/status` endpoint automatically detects cross-node tokens and validates using the
+issuer's Ed25519 public key (extracted from the DID), eliminating the need for shared secrets.
+
+**How it works:**
+1. Node A calls Node B's `/handshake/initiate` → receives token issued by Node B
+2. Node A uses that token at Node B's `/status` endpoint
+3. `/status` extracts issuer DID from token and validates using issuer's public key
+4. Peer registration succeeds with `"status": "active"`
+
+**New Endpoint:** `GET /public-key` returns this node's Ed25519 public key in JWK format (RFC 8037).
+
+### 5. Environment Variable Configuration
+
+**STATUS: RESOLVED in v0.1.1**
+
+Session tokens are now signed with Ed25519 (using the node's cryptographic identity), eliminating the need for
+a shared `EITEL_NODE_SESSION_TOKEN_SECRET`. All configuration is now loaded automatically from environment variables
+with the `EITEL_NODE_` prefix, and the application enforces proper Ed25519 key management.
+
+For future reference, when passing secrets via environment variables to Docker containers, hardcode them directly
+in the docker-compose.yml `environment` section rather than using PowerShell `$env:` syntax or `.env` files:
+
+```yaml
+environment:
+  - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
+  - EITEL_NODE_EDC_API_KEY=your-api-key-here
+```
+
+This approach is more reliable for Docker Compose configurations.
+
+---
+
+## Important Notes on Volume Cleanup
+
+To preserve persisted identities during development:
+
+```powershell
+# Safe teardown (preserves identity and data directories)
+docker compose -f docker-compose.producer.yml down
+docker compose -f docker-compose.consumer.yml down
+```
+
+To start fresh (delete all state including identities):
+
+```powershell
+# Dangerous: removes all containers AND volumes
+docker compose -f docker-compose.producer.yml down -v
+docker compose -f docker-compose.consumer.yml down -v
+rm -r identity/  # Also delete host filesystem mounts
+```
+
+---
+
+## What Changed in v0.1.1
+
+This section summarizes the architectural improvements from the previous PoC version:
+
+### Session Token Architecture (Major Change)
+- **Before:** Tokens signed with HMAC-SHA256 using a per-node secret; cross-node validation failed because each node had a different secret
+- **Now:** Tokens signed with Ed25519 using each node's private key; verified using issuer's public key extracted from DID
+- **Benefit:** Enables true cross-node authentication without shared secrets
+
+### New Endpoints
+- `GET /public-key` — Returns node's Ed25519 public key in JWK format (RFC 8037) for external verification
+- Token validation automatically handles both same-node and cross-node tokens transparently
+
+### Infrastructure Improvements
+- Identity directory now persists on host filesystem (`./identity/producer`, `./identity/consumer`) instead of volatile Docker volumes
+- Copyparty healthcheck uses Python HTTP client, eliminating dependency on `curl` binary
+- Global exception handler in FastAPI app converts token validation errors to proper 401 HTTP responses
+
+### Configuration Changes
+- `SessionTokenManager` now requires `node_identity` instead of `secret`
+- `EITEL_NODE_SESSION_TOKEN_SECRET` no longer used (removed from docker-compose files)
+- Cleaner separation of concerns: identity management handled by node, tokens signed cryptographically
 
 ---
 
 ## Teardown
 
-To stop and remove all PoC containers cleanly:
+To stop and remove all PoC containers cleanly (preserving identities):
 
 ```powershell
 cd C:\Users\Jorge\Documents\star\EITELConnector\eitel-node
@@ -440,3 +567,12 @@ docker compose -f docker-compose.consumer.yml down
 ```
 
 The Coordinator (Terminal 1) can be stopped with `Ctrl+C`.
+
+To perform a complete reset (including deleting all persisted state):
+
+```powershell
+docker compose -f docker-compose.producer.yml down -v
+docker compose -f docker-compose.consumer.yml down -v
+rm -r identity/  # Delete host filesystem mounts
+```
+
