@@ -68,6 +68,10 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
     jwk_file.write_text(json.dumps(coordinator_keys["jwk_dict"]))
 
     # Set environment variables
+    # Clear host-level variables that can break strict Config parsing in tests.
+    monkeypatch.delenv("EITEL_NODE_SESSION_TOKEN_SECRET_P", raising=False)
+    monkeypatch.delenv("EITEL_NODE_SESSION_TOKEN_SECRET_C", raising=False)
+    monkeypatch.delenv("COPYPARTY_PASSWORD", raising=False)
     monkeypatch.setenv("EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH", str(jwk_file))
     monkeypatch.setenv("EITEL_NODE_NODE_IDENTITY_DIR", str(identity_dir))
     monkeypatch.setenv("EITEL_NODE_SESSION_TOKEN_SECRET", "test-secret-key-12345")
@@ -75,7 +79,7 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
     monkeypatch.setenv("EITEL_NODE_EDC_API_KEY", "test-api-key")
 
     # Load config
-    config = Config()
+    config = Config(_env_file=None)
 
     # Initialize components
     node_identity = NodeIdentity.load_or_generate(Path(config.node_identity_dir))
@@ -624,6 +628,69 @@ class TestTransferEndpointIntegration:
             # 3. Verify successful download
             assert transfer_response.status_code == 200
             assert "attachment" in transfer_response.headers["Content-Disposition"]
+
+    def test_transfer_confirms_consumer_received_producer_data(
+        self, test_client, coordinator_keys, temp_identity_dir
+    ):
+        """Handshake + transfer verifies consumer receives expected payload bytes."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        # 1) Complete C->P handshake to obtain producer-issued session token
+        consumer_identity = NodeIdentity.load_or_generate(
+            temp_identity_dir / "consumer_receives_data"
+        )
+
+        vc_payload = {
+            "@context": ["https://www.w3.org/2018/credentials/v1"],
+            "type": ["VerifiableCredential"],
+            "issuer": "did:key:z6Mku...Coordinator",
+            "credentialSubject": {"id": consumer_identity.did},
+        }
+
+        key_obj = jwk.JWK.from_pyca(coordinator_keys["private_key"])
+        protected_header = {"alg": "EdDSA", "typ": "JWT"}
+        jws_token = jws.JWS(json.dumps(vc_payload).encode("utf-8"))
+        jws_token.add_signature(key_obj, protected=json.dumps(protected_header))
+        serialized_jws = jws_token.serialize(compact=True)
+
+        vc = vc_payload.copy()
+        vc["proof"] = {"type": "JwtProof", "jwt": serialized_jws}
+
+        handshake_response = test_client.post(
+            "/handshake/initiate",
+            json={"did": consumer_identity.did, "eitel_vc": vc},
+        )
+        assert handshake_response.status_code == 200
+        session_token = handshake_response.json()["session_token"]
+
+        # 2) Simulate producer Copyparty response and verify exact bytes reach consumer
+        expected_bytes = b'{"dataset":"project-star","producer":"node-p","rows":[1,2,3]}'
+        expected_content_type = "application/json"
+
+        with patch("routers.transfer.httpx.AsyncClient") as mock_client_class:
+
+            async def async_iter_bytes():
+                yield expected_bytes
+
+            mock_client = AsyncMock()
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.headers = {"Content-Type": expected_content_type}
+            mock_response.aiter_bytes = async_iter_bytes
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client_class.return_value = mock_client
+
+            transfer_response = test_client.post(
+                "/transfer/download",
+                json={"file_path": "test-dataset.json"},
+                headers={"Authorization": f"Bearer {session_token}"},
+            )
+
+            assert transfer_response.status_code == 200
+            assert transfer_response.content == expected_bytes
+            assert expected_content_type in transfer_response.headers["Content-Type"]
 
 
 class TestPublicKeyEndpoint:
