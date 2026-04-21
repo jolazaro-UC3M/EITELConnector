@@ -73,55 +73,50 @@ async def get_status(credentials: Optional[HTTPAuthorizationCredentials] = Depen
     """
     Get node status: identity, handshake history, peer registry.
 
+    Token validation automatically uses the issuer's Ed25519 public key derived from the
+    token's issuer DID claim, enabling cross-node authentication without shared secrets.
+
     Returns:
         Node status including DID, last handshake, and registered peers
 
     Raises:
         HTTPException: 401 if authorization is missing or invalid
     """
-    try:
-        if not credentials:
-            raise HTTPException(status_code=401, detail="Missing Authorization header")
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-        token = credentials.credentials
-        session_manager = router._session_manager
+    token = credentials.credentials
+    session_manager = router._session_manager
+    node_identity = router._node_identity
 
-        # Validate token
-        try:
-            claims = session_manager.validate_token(token)
-        except InvalidTokenError as e:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    # Validate token (automatically uses issuer's Ed25519 public key)
+    claims = session_manager.validate_token(token)  # Raises InvalidTokenError on failure
 
-        # Validate audience
-        if claims.audience != "handshake":
-            raise HTTPException(status_code=401, detail="Invalid audience")
+    # Validate audience
+    if claims.audience != "handshake":
+        raise HTTPException(status_code=401, detail="Invalid audience")
 
-        node_identity = router._node_identity
-        last_handshake = getattr(router, "_last_handshake", None)
-        gx_vp_status = getattr(router, "_last_gx_vp_status", "absent")
-        registered_peers_dict = getattr(router, "_registered_peers", {})
+    last_handshake = getattr(router, "_last_handshake", None)
+    gx_vp_status = getattr(router, "_last_gx_vp_status", "absent")
+    registered_peers_dict = getattr(router, "_registered_peers", {})
 
-        # Convert peer dict to list of PeerStatus objects
-        peers = [
-            PeerStatus(
-                did=did,
-                registered_at=peer_info.get("registered_at", ""),
-                status=peer_info.get("status", "active"),
-                last_interaction=peer_info.get("last_interaction"),
-            )
-            for did, peer_info in registered_peers_dict.items()
-        ]
-
-        return StatusResponse(
-            node_did=node_identity.did,
-            last_handshake=last_handshake,
-            gx_vp_status=gx_vp_status,
-            registered_peers=peers,
+    # Convert peer dict to list of PeerStatus objects
+    peers = [
+        PeerStatus(
+            did=did,
+            registered_at=peer_info.get("registered_at", ""),
+            status=peer_info.get("status", "active"),
+            last_interaction=peer_info.get("last_interaction"),
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Status query failed: {str(e)}")
+        for did, peer_info in registered_peers_dict.items()
+    ]
+
+    return StatusResponse(
+        node_did=node_identity.did,
+        last_handshake=last_handshake,
+        gx_vp_status=gx_vp_status,
+        registered_peers=peers,
+    )
 
 
 @router.get("/handshake/ticket", response_model=TicketResponse)

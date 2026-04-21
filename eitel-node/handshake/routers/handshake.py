@@ -109,6 +109,9 @@ async def initiate_handshake(req: InitiateHandshakeRequest) -> InitiateHandshake
     """
     try:
         # Access injected dependencies
+        if not hasattr(router, "_node_identity"):
+            raise HTTPException(status_code=500, detail="Router not initialized - init_handshake_routes not called")
+
         node_identity = router._node_identity
         vc_verifier = router._vc_verifier
         vp_checker = router._vp_checker
@@ -131,7 +134,9 @@ async def initiate_handshake(req: InitiateHandshakeRequest) -> InitiateHandshake
             # (TODO: persist to database or status cache)
 
         # Step 3: Issue session token
-        session_token = session_manager.issue_token(subject=req.did, audience="handshake")
+        session_token = session_manager.issue_token(
+            subject=req.did, audience="handshake", issuer=node_identity.did
+        )
 
         # Step 4: Update peer registry in status router
         from . import status

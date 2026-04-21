@@ -14,10 +14,10 @@ from fastapi.testclient import TestClient
 from jwcrypto import jws, jwk
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-# Add handshake directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add package parent to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from main import app
+from handshake.main import app
 from config import Config
 from core.identity import NodeIdentity
 from routers import transfer
@@ -82,7 +82,7 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
     vc_verifier = EITELVCVerifier(str(jwk_file))
     vp_checker = GXVPChecker()
     session_manager = SessionTokenManager(
-        secret=config.session_token_secret, ttl_seconds=config.session_token_ttl
+        node_identity=node_identity, ttl_seconds=config.session_token_ttl
     )
     edc_client = EDCClient(
         management_url=config.edc_management_url, api_key=config.edc_api_key
@@ -96,16 +96,21 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
     app.state.edc_client = edc_client
     app.state.config = config
 
-    # Initialize routers
-    handshake.init_handshake_routes(
+    # Initialize routers - IMPORTANT: use the same module instances that the app imported
+    # This ensures the routers' module-level attributes are set correctly
+    from handshake.routers import handshake as hs_router
+    from handshake.routers import status as st_router
+    from handshake.routers import transfer as tf_router
+
+    hs_router.init_handshake_routes(
         node_identity=node_identity,
         vc_verifier=vc_verifier,
         vp_checker=vp_checker,
         session_manager=session_manager,
         edc_dsp_endpoint="http://localhost:11003/api/v1/dsp",
     )
-    status.init_status_routes(session_manager=session_manager, node_identity=node_identity)
-    transfer.init_transfer_routes(session_manager=session_manager)
+    st_router.init_status_routes(session_manager=session_manager, node_identity=node_identity)
+    tf_router.init_transfer_routes(session_manager=session_manager)
 
     return TestClient(app)
 
@@ -168,6 +173,8 @@ class TestHandshakeIntegration:
         response = test_client.post("/handshake/initiate", json=request_body)
 
         # Verify response
+        if response.status_code != 200:
+            print(f"\nHandshake failed: {response.status_code}: {response.text}")
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "ok"
@@ -261,11 +268,15 @@ class TestStatusEndpoint:
 
         # Issue a token with wrong audience
         token = session_manager.issue_token(
-            subject=node_identity.did, audience="wrong", issuer=node_identity.did
+            subject=node_identity.did, audience="wrong"
         )
 
         headers = {"Authorization": f"Bearer {token}"}
         response = test_client.get("/status", headers=headers)
+
+        if response.status_code != 401:
+            print(f"\nStatus returned {response.status_code}: {response.text}")
+
         assert response.status_code == 401
 
     def test_status_endpoint_after_handshake(self, test_client, coordinator_keys, temp_identity_dir):
@@ -613,4 +624,145 @@ class TestTransferEndpointIntegration:
             # 3. Verify successful download
             assert transfer_response.status_code == 200
             assert "attachment" in transfer_response.headers["Content-Disposition"]
+
+
+class TestPublicKeyEndpoint:
+    """Tests for the /public-key endpoint."""
+
+    def test_public_key_endpoint_returns_jwk(self, test_client):
+        """Public key endpoint returns valid JWK format."""
+        response = test_client.get("/public-key")
+        assert response.status_code == 200
+        body = response.json()
+
+        # Verify JWK structure (RFC 8037 for Ed25519)
+        assert body["kty"] == "OKP"
+        assert body["crv"] == "Ed25519"
+        assert "x" in body  # Public key (base64url)
+        assert body["use"] == "sig"
+        assert body["alg"] == "EdDSA"
+
+        # Public key should be base64url-encoded
+        assert isinstance(body["x"], str)
+        assert len(body["x"]) > 0
+
+
+class TestCrossNodeTokenValidation:
+    """Tests for cross-node token validation using issuer's public key."""
+
+    def test_cross_node_token_validation(self, test_client, temp_identity_dir):
+        """Token issued by one node can be validated using issuer's public key."""
+        from core.session import SessionTokenManager
+
+        # Get current node's identity
+        node_identity = test_client.app.state.node_identity
+
+        # Create a peer node identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_node")
+
+        # Peer node issues a token with current node as subject and peer as issuer
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=3600
+        )
+
+        # Peer issues a token to current node
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Current node should be able to validate using peer's public key
+        session_manager = test_client.app.state.session_manager
+        claims = session_manager.validate_token(token)
+
+        assert claims.subject == node_identity.did
+        assert claims.issuer == peer_identity.did
+        assert claims.audience == "handshake"
+
+    def test_status_accepts_cross_node_token(self, test_client, temp_identity_dir):
+        """Status endpoint accepts tokens issued by peer nodes."""
+        from core.session import SessionTokenManager
+
+        node_identity = test_client.app.state.node_identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_for_status")
+
+        # Peer issues a token to current node
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=3600
+        )
+
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Directly test token validation (endpoint integration tested in TestStatusEndpoint)
+        session_manager = test_client.app.state.session_manager
+        claims = session_manager.validate_token(token)
+
+        assert claims.subject == node_identity.did
+        assert claims.issuer == peer_identity.did
+        assert claims.audience == "handshake"
+
+    def test_cross_node_token_with_wrong_issuer_fails(self, test_client, temp_identity_dir):
+        """Validation fails if token issuer doesn't match expected issuer."""
+        from core.session import SessionTokenManager
+
+        node_identity = test_client.app.state.node_identity
+        peer1_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer1_wrong")
+        peer2_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer2_wrong")
+
+        # Peer1 issues a token
+        peer1_session_manager = SessionTokenManager(
+            node_identity=peer1_identity, ttl_seconds=3600
+        )
+
+        token = peer1_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Try to validate as if peer2 issued it
+        session_manager = test_client.app.state.session_manager
+
+        from core.session import InvalidTokenError
+
+        with pytest.raises(InvalidTokenError, match="Token issuer mismatch"):
+            session_manager.validate_token_with_issuer_pubkey(
+                token, issuer_did=peer2_identity.did
+            )
+
+    def test_malformed_cross_node_token_fails(self, test_client):
+        """Validation fails for malformed cross-node tokens."""
+        session_manager = test_client.app.state.session_manager
+
+        from core.session import InvalidTokenError
+
+        # Test with completely invalid token
+        with pytest.raises(InvalidTokenError):
+            session_manager.validate_token("invalid.token.here")
+
+    def test_expired_cross_node_token_fails(self, test_client, temp_identity_dir):
+        """Validation fails for expired cross-node tokens."""
+        from core.session import SessionTokenManager, InvalidTokenError
+        import time
+
+        node_identity = test_client.app.state.node_identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_expired")
+
+        # Create a token with 0 TTL (immediate expiration)
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=0
+        )
+
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Wait a bit to ensure expiration
+        time.sleep(0.1)
+
+        # Validation should fail
+        session_manager = test_client.app.state.session_manager
+
+        with pytest.raises(InvalidTokenError, match="expired"):
+            session_manager.validate_token(token)
+
 

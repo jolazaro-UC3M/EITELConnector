@@ -56,6 +56,12 @@ class Config(BaseSettings):
         description="Secret key for JWT signing (HMAC-SHA256). RECOMMENDED: override with strong secret in production.",
     )
 
+    # GAIA-X integration (optional, for future production use)
+    gxdch_endpoint: str = Field(
+        default="",
+        description="GAIA-X Digital Clearing House (GXDCH) endpoint for Verifiable Presentation issuance. Leave empty for PoC.",
+    )
+
     # Server
     host: str = Field(default="0.0.0.0", description="Server host address")
     port: int = Field(default=8080, description="Server port")
