@@ -1,13 +1,13 @@
 """
-EDC management API client: proxy for querying catalogue and negotiation endpoints.
+EDC management API client: proxy for querying catalogue, negotiation, and transfer endpoints.
 
-This is a minimal client focused on the PoC. It proxies requests to EDC's
-management API without pre-registering peers (EDC handles peer identity at
-DSP negotiation time, not before).
+This client orchestrates the full contract negotiation and data transfer flow with the EITEL EDC connector.
+It treats EDC as an immutable external dependency and only calls its management API.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional, NamedTuple
 import httpx
 
@@ -15,16 +15,29 @@ import httpx
 class EDCCatalogueResponse(NamedTuple):
     """Response from EDC catalogue query."""
 
-    assets: list[dict]  # List of asset dicts
-    error: Optional[str] = None  # Error message if query failed
+    assets: list[dict]
+    error: Optional[str] = None
+
+
+class EDCNegotiationResponse(NamedTuple):
+    """Response from EDC negotiation query."""
+
+    id: str
+    state: str
+    contract_agreement_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class EDCTransferResponse(NamedTuple):
+    """Response from EDC transfer initiation."""
+
+    id: str
+    state: str
+    error: Optional[str] = None
 
 
 class EDCClient:
-    """
-    HTTP client for calling EDC management API endpoints.
-
-    Focused on PoC: only implements catalogue query. Negotiation endpoints are stubs.
-    """
+    """HTTP client for EDC management API endpoints."""
 
     def __init__(self, management_url: str, api_key: str):
         """
@@ -32,7 +45,6 @@ class EDCClient:
 
         Args:
             management_url: Base URL of EDC management API
-                (e.g., "http://edc-control:8182" or "https://production-edc:8182")
             api_key: API key for x-api-key authentication header
         """
         self.management_url = management_url.rstrip("/")
@@ -43,11 +55,21 @@ class EDCClient:
         """Close the HTTP client."""
         await self.client.aclose()
 
-    async def get_catalogue(self) -> EDCCatalogueResponse:
-        """
-        Query this node's asset catalogue via EDC management API.
+    def _headers(self) -> dict:
+        """Return standard headers for EDC API calls."""
+        return {
+            "x-api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
 
-        Calls: POST /v3/catalog/request (EDC's catalogue endpoint)
+    async def get_catalogue(self, counterparty_dsp_url: str) -> EDCCatalogueResponse:
+        """
+        Query catalogue from a peer node via DSP.
+
+        Calls: POST /v3/catalog/request
+
+        Args:
+            counterparty_dsp_url: Peer's DSP endpoint URL
 
         Returns:
             EDCCatalogueResponse with assets list or error
@@ -55,20 +77,20 @@ class EDCClient:
         try:
             url = f"{self.management_url}/v3/catalog/request"
 
-            # Minimal catalogue query payload
-            # (This is a stub; actual payload depends on EDC API version)
-            payload = {}
+            payload = {
+                "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+                "@type": "CatalogRequest",
+                "counterPartyAddress": counterparty_dsp_url,
+                "protocol": "dataspace-protocol-http"
+            }
 
-            headers = {"x-api-key": self.api_key, "Content-Type": "application/json"}
-
-            response = await self.client.post(url, json=payload, headers=headers)
+            response = await self.client.post(url, json=payload, headers=self._headers())
 
             if response.status_code != 200:
-                error = f"EDC catalogue query failed: {response.status_code}"
+                error = f"EDC catalogue query failed: {response.status_code} - {response.text}"
                 return EDCCatalogueResponse(assets=[], error=error)
 
             data = response.json()
-            # EDC returns assets in various formats; extract what we can
             assets = data.get("data", {}).get("asset", [])
             if not isinstance(assets, list):
                 assets = [assets] if assets else []
@@ -83,48 +105,280 @@ class EDCClient:
         """
         Query contract negotiations with a specific counterparty.
 
+        Calls: GET /v3/contractnegotiations?counterParty={counterparty_did}
+
         Args:
             counterparty_did: Peer's DID
 
         Returns:
-            List of negotiation records (empty on error)
-
-        Note:
-            TODO: Implement after EDC integration testing.
-            Endpoint: GET /v3/contractnegotiations?counterParty=...
+            List of negotiation records or empty list on error
         """
-        # Stub: not implemented in PoC
-        return []
+        try:
+            url = f"{self.management_url}/v3/contractnegotiations"
+            params = {"counterParty": counterparty_did}
+
+            response = await self.client.get(url, params=params, headers=self._headers())
+
+            if response.status_code != 200:
+                return []
+
+            data = response.json()
+            negotiations = data.get("data", [])
+            if not isinstance(negotiations, list):
+                negotiations = []
+
+            return negotiations
+
+        except Exception:
+            return []
 
     async def initiate_negotiation(
-        self, counterparty_did: str, asset_id: str
-    ) -> dict:
+        self,
+        counterparty_dsp_url: str,
+        offer_id: str,
+        asset_id: str,
+        counterparty_did: str,
+        policy: Optional[dict] = None
+    ) -> EDCNegotiationResponse:
         """
-        Initiate DSP contract negotiation with a peer for an asset.
+        Initiate DSP contract negotiation for an asset.
+
+        Calls: POST /v3/contractnegotiations/initiate
 
         Args:
+            counterparty_dsp_url: Peer's DSP endpoint
+            offer_id: Asset offer ID from catalogue
+            asset_id: Asset ID being negotiated
             counterparty_did: Peer's DID
-            asset_id: Asset to negotiate access to
+            policy: Optional policy dict (defaults to empty for PoC)
 
         Returns:
-            Negotiation initiation response or error dict
+            EDCNegotiationResponse with negotiation ID and state
+        """
+        try:
+            url = f"{self.management_url}/v3/contractnegotiations/initiate"
 
-        Note:
-            TODO: Implement after EDC integration testing.
-            Endpoint: POST /v3/contractnegotiations/initiate
-            Payload: {
-                "counterPartyAddress": "...",
+            payload = {
+                "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+                "@type": "ContractRequest",
+                "counterPartyAddress": counterparty_dsp_url,
                 "protocol": "dataspace-protocol-http",
-                "connectorId": "...",
-                "offer": {
-                    "offerId": "...",
-                    "assetId": asset_id,
-                    "policy": {...}
+                "policy": {
+                    "@type": "Offer",
+                    "@id": offer_id,
+                    "assigner": counterparty_did,
+                    "target": asset_id,
+                    **(policy or {})
                 }
             }
+
+            response = await self.client.post(url, json=payload, headers=self._headers())
+
+            if response.status_code not in (200, 201):
+                error = f"Failed to initiate negotiation: {response.status_code} - {response.text}"
+                return EDCNegotiationResponse(id="", state="FAILED", error=error)
+
+            data = response.json()
+            negotiation_id = data.get("id", "")
+            state = data.get("state", "REQUESTED")
+
+            return EDCNegotiationResponse(
+                id=negotiation_id,
+                state=state,
+                error=None
+            )
+
+        except Exception as e:
+            error = f"EDC initiate negotiation error: {str(e)}"
+            return EDCNegotiationResponse(id="", state="FAILED", error=error)
+
+    async def get_negotiation(self, negotiation_id: str) -> EDCNegotiationResponse:
         """
-        # Stub: not implemented in PoC
-        return {
-            "error": "initiate_negotiation not yet implemented",
-            "reason": "TODO: EDC integration testing",
-        }
+        Get current state of a contract negotiation.
+
+        Calls: GET /v3/contractnegotiations/{negotiation_id}
+
+        Args:
+            negotiation_id: EDC negotiation ID
+
+        Returns:
+            EDCNegotiationResponse with negotiation details
+        """
+        try:
+            url = f"{self.management_url}/v3/contractnegotiations/{negotiation_id}"
+
+            response = await self.client.get(url, headers=self._headers())
+
+            if response.status_code != 200:
+                error = f"Failed to get negotiation: {response.status_code}"
+                return EDCNegotiationResponse(id=negotiation_id, state="FAILED", error=error)
+
+            data = response.json()
+            state = data.get("state", "UNKNOWN")
+            contract_agreement_id = data.get("contractAgreementId")
+
+            return EDCNegotiationResponse(
+                id=negotiation_id,
+                state=state,
+                contract_agreement_id=contract_agreement_id,
+                error=None
+            )
+
+        except Exception as e:
+            error = f"EDC get negotiation error: {str(e)}"
+            return EDCNegotiationResponse(id=negotiation_id, state="FAILED", error=error)
+
+    async def poll_negotiation_state(
+        self,
+        negotiation_id: str,
+        max_retries: int = 30,
+        retry_delay: float = 1.0
+    ) -> EDCNegotiationResponse:
+        """
+        Poll negotiation state until FINALIZED or error.
+
+        Args:
+            negotiation_id: EDC negotiation ID
+            max_retries: Maximum number of poll attempts
+            retry_delay: Delay between retries in seconds
+
+        Returns:
+            EDCNegotiationResponse with final state and contract agreement ID
+        """
+        for attempt in range(max_retries):
+            result = await self.get_negotiation(negotiation_id)
+
+            if result.error:
+                return result
+
+            if result.state in ("FINALIZED", "TERMINATED", "FAILED"):
+                return result
+
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+
+        error = f"Negotiation polling timeout after {max_retries} retries"
+        return EDCNegotiationResponse(id=negotiation_id, state="TIMEOUT", error=error)
+
+    async def start_transfer(
+        self,
+        contract_id: str,
+        asset_id: str,
+        counterparty_dsp_url: str,
+        destination_url: str
+    ) -> EDCTransferResponse:
+        """
+        Start a data transfer after contract negotiation.
+
+        Calls: POST /v3/transferprocesses
+
+        Args:
+            contract_id: Contract agreement ID from negotiation
+            asset_id: Asset being transferred
+            counterparty_dsp_url: Peer's DSP endpoint
+            destination_url: HTTP endpoint to receive data (copyparty URL)
+
+        Returns:
+            EDCTransferResponse with transfer process ID and initial state
+        """
+        try:
+            url = f"{self.management_url}/v3/transferprocesses"
+
+            payload = {
+                "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+                "@type": "TransferRequest",
+                "contractId": contract_id,
+                "counterPartyAddress": counterparty_dsp_url,
+                "assetId": asset_id,
+                "protocol": "dataspace-protocol-http",
+                "dataDestination": {
+                    "@type": "HttpData",
+                    "baseUrl": destination_url
+                }
+            }
+
+            response = await self.client.post(url, json=payload, headers=self._headers())
+
+            if response.status_code not in (200, 201):
+                error = f"Failed to start transfer: {response.status_code} - {response.text}"
+                return EDCTransferResponse(id="", state="FAILED", error=error)
+
+            data = response.json()
+            transfer_id = data.get("id", "")
+            state = data.get("state", "STARTED")
+
+            return EDCTransferResponse(
+                id=transfer_id,
+                state=state,
+                error=None
+            )
+
+        except Exception as e:
+            error = f"EDC start transfer error: {str(e)}"
+            return EDCTransferResponse(id="", state="FAILED", error=error)
+
+    async def poll_transfer_state(
+        self,
+        transfer_id: str,
+        max_retries: int = 60,
+        retry_delay: float = 1.0
+    ) -> EDCTransferResponse:
+        """
+        Poll transfer state until COMPLETED or error.
+
+        Args:
+            transfer_id: EDC transfer process ID
+            max_retries: Maximum number of poll attempts
+            retry_delay: Delay between retries in seconds
+
+        Returns:
+            EDCTransferResponse with final state
+        """
+        for attempt in range(max_retries):
+            result = await self.get_transfer(transfer_id)
+
+            if result.error:
+                return result
+
+            if result.state in ("COMPLETED", "TERMINATED", "FAILED", "ERROR"):
+                return result
+
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+
+        error = f"Transfer polling timeout after {max_retries} retries"
+        return EDCTransferResponse(id=transfer_id, state="TIMEOUT", error=error)
+
+    async def get_transfer(self, transfer_id: str) -> EDCTransferResponse:
+        """
+        Get current state of a transfer process.
+
+        Calls: GET /v3/transferprocesses/{transfer_id}
+
+        Args:
+            transfer_id: EDC transfer process ID
+
+        Returns:
+            EDCTransferResponse with transfer state
+        """
+        try:
+            url = f"{self.management_url}/v3/transferprocesses/{transfer_id}"
+
+            response = await self.client.get(url, headers=self._headers())
+
+            if response.status_code != 200:
+                error = f"Failed to get transfer: {response.status_code}"
+                return EDCTransferResponse(id=transfer_id, state="FAILED", error=error)
+
+            data = response.json()
+            state = data.get("state", "UNKNOWN")
+
+            return EDCTransferResponse(
+                id=transfer_id,
+                state=state,
+                error=None
+            )
+
+        except Exception as e:
+            error = f"EDC get transfer error: {str(e)}"
+            return EDCTransferResponse(id=transfer_id, state="FAILED", error=error)
