@@ -122,7 +122,11 @@ async def startup_event():
 
     status.init_status_routes(session_manager=session_manager, node_identity=node_identity)
 
-    transfer.init_transfer_routes(session_manager=session_manager)
+    transfer.init_transfer_routes(
+        session_manager=session_manager,
+        edc_client=edc_client,
+        edc_data_plane_url=config.edc_data_plane_url
+    )
     print("[STARTUP] Transfer router initialized")
 
     print("[STARTUP] Handshake service initialized successfully")

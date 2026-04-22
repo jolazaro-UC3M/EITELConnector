@@ -114,7 +114,11 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
         edc_dsp_endpoint="http://localhost:11003/api/v1/dsp",
     )
     st_router.init_status_routes(session_manager=session_manager, node_identity=node_identity)
-    tf_router.init_transfer_routes(session_manager=session_manager)
+    tf_router.init_transfer_routes(
+        session_manager=session_manager,
+        edc_client=edc_client,
+        edc_data_plane_url=config.edc_data_plane_url
+    )
 
     return TestClient(app)
 
@@ -836,3 +840,205 @@ class TestCrossNodeTokenValidation:
             session_manager.validate_token(token)
 
 
+class TestTransferNegotiate:
+    """Integration tests for /transfer/negotiate endpoint."""
+
+    def test_negotiate_transfer_missing_token(self, test_client):
+        """Negotiate transfer without token returns 401."""
+        response = test_client.post(
+            "/transfer/negotiate",
+            json={
+                "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                "file_path": "dataset.json"
+            }
+        )
+        assert response.status_code == 401
+        assert "Missing Authorization header" in response.json()["detail"]
+
+    def test_negotiate_transfer_invalid_token(self, test_client):
+        """Negotiate transfer with invalid token returns 401."""
+        response = test_client.post(
+            "/transfer/negotiate",
+            headers={"Authorization": "Bearer invalid.token"},
+            json={
+                "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                "file_path": "dataset.json"
+            }
+        )
+        assert response.status_code == 401, f"Expected 401, got {response.status_code}. Body: {response.json()}"
+
+    def test_negotiate_transfer_missing_bearer_prefix(self, test_client):
+        """Negotiate transfer without Bearer prefix returns 401."""
+        response = test_client.post(
+            "/transfer/negotiate",
+            headers={"Authorization": "eyJhbGciOiJFZERTQSJ9.invalid"},
+            json={
+                "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                "file_path": "dataset.json"
+            }
+        )
+        assert response.status_code == 401
+        assert "Bearer" in response.json()["detail"]
+
+    def test_negotiate_transfer_with_valid_token(self, test_client, temp_identity_dir):
+        """Negotiate transfer with valid token (will fail at EDC call)."""
+        from core.session import SessionTokenManager
+        from unittest.mock import patch, AsyncMock
+        from core.edc_client import EDCCatalogueResponse, EDCNegotiationResponse, EDCTransferResponse
+
+        node_identity = test_client.app.state.node_identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_negotiate")
+
+        # Peer issues a token
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=3600
+        )
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Mock EDC client responses
+        mock_catalogue = EDCCatalogueResponse(
+            assets=[{"id": "dataset.json", "name": "dataset.json"}],
+            error=None
+        )
+        mock_negotiation = EDCNegotiationResponse(
+            id="neg-123",
+            state="FINALIZED",
+            contract_agreement_id="contract-abc",
+            error=None
+        )
+        mock_transfer = EDCTransferResponse(
+            id="transfer-xyz",
+            state="STARTED",
+            error=None
+        )
+
+        with patch.object(test_client.app.state.edc_client, "get_catalogue", new_callable=AsyncMock) as mock_cat, \
+             patch.object(test_client.app.state.edc_client, "initiate_negotiation", new_callable=AsyncMock) as mock_init_neg, \
+             patch.object(test_client.app.state.edc_client, "poll_negotiation_state", new_callable=AsyncMock) as mock_poll_neg, \
+             patch.object(test_client.app.state.edc_client, "start_transfer", new_callable=AsyncMock) as mock_start_transfer:
+
+            mock_cat.return_value = mock_catalogue
+            mock_init_neg.return_value = mock_negotiation
+            mock_poll_neg.return_value = mock_negotiation
+            mock_start_transfer.return_value = mock_transfer
+
+            response = test_client.post(
+                "/transfer/negotiate",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                    "file_path": "dataset.json"
+                }
+            )
+
+            assert response.status_code == 200
+            body = response.json()
+            assert body["status"] == "ok"
+            assert body["transfer_process_id"] == "transfer-xyz"
+            assert body["negotiation_id"] == "neg-123"
+            assert body["asset_id"] == "dataset.json"
+
+    def test_negotiate_transfer_catalogue_error(self, test_client, temp_identity_dir):
+        """Negotiate transfer fails when catalogue query fails."""
+        from core.session import SessionTokenManager
+        from unittest.mock import patch, AsyncMock
+        from core.edc_client import EDCCatalogueResponse
+
+        node_identity = test_client.app.state.node_identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_cat_error")
+
+        # Peer issues a token
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=3600
+        )
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Mock EDC catalogue failure
+        mock_catalogue = EDCCatalogueResponse(
+            assets=[],
+            error="EDC catalogue query failed: 500"
+        )
+
+        with patch.object(test_client.app.state.edc_client, "get_catalogue", new_callable=AsyncMock) as mock_cat:
+            mock_cat.return_value = mock_catalogue
+
+            response = test_client.post(
+                "/transfer/negotiate",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                    "file_path": "dataset.json"
+                }
+            )
+
+            assert response.status_code == 400
+            assert "catalogue" in response.json()["detail"].lower()
+
+    def test_negotiate_transfer_asset_not_found(self, test_client, temp_identity_dir):
+        """Negotiate transfer fails when asset not found in catalogue."""
+        from core.session import SessionTokenManager
+        from unittest.mock import patch, AsyncMock
+        from core.edc_client import EDCCatalogueResponse
+
+        node_identity = test_client.app.state.node_identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_no_asset")
+
+        # Peer issues a token
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=3600
+        )
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        # Mock EDC catalogue with different assets
+        mock_catalogue = EDCCatalogueResponse(
+            assets=[{"id": "other-asset.json", "name": "other-asset.json"}],
+            error=None
+        )
+
+        with patch.object(test_client.app.state.edc_client, "get_catalogue", new_callable=AsyncMock) as mock_cat:
+            mock_cat.return_value = mock_catalogue
+
+            response = test_client.post(
+                "/transfer/negotiate",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                    "file_path": "dataset.json"
+                }
+            )
+
+            assert response.status_code == 400
+            assert "not found" in response.json()["detail"].lower()
+
+    def test_negotiate_transfer_path_traversal_blocked(self, test_client, temp_identity_dir):
+        """Negotiate transfer blocks path traversal attempts."""
+        from core.session import SessionTokenManager
+
+        node_identity = test_client.app.state.node_identity
+        peer_identity = NodeIdentity.load_or_generate(temp_identity_dir / "peer_traversal")
+
+        # Peer issues a token
+        peer_session_manager = SessionTokenManager(
+            node_identity=peer_identity, ttl_seconds=3600
+        )
+        token = peer_session_manager.issue_token(
+            subject=node_identity.did, audience="handshake"
+        )
+
+        response = test_client.post(
+            "/transfer/negotiate",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "peer_dsp_endpoint": "http://peer:11003/api/v1/dsp",
+                "file_path": "../../../etc/passwd"
+            }
+        )
+
+        assert response.status_code == 400
+        assert "parent directory" in response.json()["detail"].lower()
