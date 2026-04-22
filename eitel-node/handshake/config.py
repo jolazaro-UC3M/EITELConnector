@@ -45,6 +45,11 @@ class Config(BaseSettings):
         description="EDC management API authentication key (x-api-key header)",
     )
 
+    edc_data_plane_url: str = Field(
+        default="http://copyparty:3923",
+        description="EDC data plane HTTP destination URL (where EDC pushes transferred files via HttpData)",
+    )
+
     # Session tokens
     session_token_ttl: int = Field(
         default=3600,
