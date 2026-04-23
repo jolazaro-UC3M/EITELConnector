@@ -11,6 +11,8 @@ from typing import NamedTuple, Optional
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from .identity import NodeIdentity
+
 
 class InvalidTokenError(Exception):
     """Token validation failed."""

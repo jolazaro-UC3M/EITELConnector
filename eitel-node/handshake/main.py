@@ -18,7 +18,7 @@ try:
     from .core.identity import NodeIdentity
     from .core.vc_verifier import EITELVCVerifier
     from .core.vp_checker import GXVPChecker
-    from .core.session import SessionTokenManager
+    from .core.session import SessionTokenManager, InvalidTokenError
     from .core.edc_client import EDCClient
     from .routers import handshake, status, transfer
 except ImportError:
@@ -27,7 +27,7 @@ except ImportError:
     from core.identity import NodeIdentity
     from core.vc_verifier import EITELVCVerifier
     from core.vp_checker import GXVPChecker
-    from core.session import SessionTokenManager
+    from core.session import SessionTokenManager, InvalidTokenError
     from core.edc_client import EDCClient
     from routers import handshake, status, transfer
 
@@ -50,9 +50,6 @@ app.add_middleware(
 
 
 # Exception handlers
-from core.session import InvalidTokenError
-
-
 @app.exception_handler(InvalidTokenError)
 async def invalid_token_exception_handler(request, exc):
     """Convert InvalidTokenError to 401 HTTP response."""
