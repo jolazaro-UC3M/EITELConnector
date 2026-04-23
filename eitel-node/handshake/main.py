@@ -161,7 +161,6 @@ async def get_public_key():
     token signature validation.
     """
     import base64
-    import json
 
     if not hasattr(app.state, "node_identity"):
         return {"error": "Node not initialized"}, 503

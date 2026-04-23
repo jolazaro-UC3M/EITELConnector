@@ -4,16 +4,12 @@ Unit tests for EDCClient - API client for the EITEL EDC connector.
 Tests all methods in isolation using mocked HTTP responses.
 """
 
-import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 
 from core.edc_client import (
     EDCClient,
-    EDCCatalogueResponse,
-    EDCNegotiationResponse,
-    EDCTransferResponse,
 )
 
 

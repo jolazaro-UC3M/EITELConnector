@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from handshake.main import app
 from config import Config
 from core.identity import NodeIdentity
-from routers import transfer
 
 
 @pytest.fixture
@@ -57,7 +56,6 @@ def test_client(coordinator_keys, temp_identity_dir, monkeypatch):
     from core.vp_checker import GXVPChecker
     from core.session import SessionTokenManager
     from core.edc_client import EDCClient
-    from routers import handshake, status
 
     # Create temp identity dir
     identity_dir = temp_identity_dir / "node_identity"
