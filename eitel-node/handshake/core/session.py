@@ -10,7 +10,6 @@ from typing import NamedTuple, Optional
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
 
 
 class InvalidTokenError(Exception):
