@@ -90,7 +90,10 @@ async def get_status(credentials: Optional[HTTPAuthorizationCredentials] = Depen
     node_identity = router._node_identity
 
     # Validate token (automatically uses issuer's Ed25519 public key)
-    claims = session_manager.validate_token(token)  # Raises InvalidTokenError on failure
+    try:
+        claims = session_manager.validate_token(token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
     # Validate audience
     if claims.audience != "handshake":
@@ -153,7 +156,7 @@ async def get_ticket(authorization: Optional[str] = Header(None)) -> TicketRespo
         # Validate token
         try:
             claims = session_manager.validate_token(token)
-        except InvalidTokenError as e:
+        except Exception as e:
             raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
         # Validate audience
