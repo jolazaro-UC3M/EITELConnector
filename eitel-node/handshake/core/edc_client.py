@@ -62,7 +62,7 @@ class EDCClient:
             "Content-Type": "application/json"
         }
 
-    async def get_catalogue(self, counterparty_dsp_url: str) -> EDCCatalogueResponse:
+    async def get_catalogue(self, counterparty_dsp_url: str, counterparty_did: Optional[str] = None) -> EDCCatalogueResponse:
         """
         Query catalogue from a peer node via DSP.
 
@@ -70,6 +70,7 @@ class EDCClient:
 
         Args:
             counterparty_dsp_url: Peer's DSP endpoint URL
+            counterparty_did: Peer's DID (required for EDC v0.16.0+)
 
         Returns:
             EDCCatalogueResponse with assets list or error
@@ -83,6 +84,9 @@ class EDCClient:
                 "counterPartyAddress": counterparty_dsp_url,
                 "protocol": "dataspace-protocol-http"
             }
+
+            if counterparty_did:
+                payload["counterPartyId"] = counterparty_did
 
             response = await self.client.post(url, json=payload, headers=self._headers())
 
