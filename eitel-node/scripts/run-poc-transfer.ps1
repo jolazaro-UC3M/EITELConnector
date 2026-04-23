@@ -5,8 +5,8 @@ param(
     [switch]$SkipCoordinatorStart,
     [switch]$NoBuild,
     [switch]$TeardownOnSuccess,
-    [string]$EDCManagementUrl = "http://localhost:8182",
-    [string]$EDCApiKey = "change-me"
+    [string]$EDCManagementUrl = "http://localhost:11002/management",
+    [string]$EDCApiKey = "poc-api-key"
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,6 +54,48 @@ function Invoke-JsonPost {
         -Body ($Body | ConvertTo-Json -Depth 20)
 }
 
+function Get-HttpErrorMessage {
+    param(
+        [Parameter(Mandatory = $true)]
+        $ErrorRecord
+    )
+
+    $message = $ErrorRecord.Exception.Message
+    try {
+        if ($ErrorRecord.ErrorDetails -and $ErrorRecord.ErrorDetails.Message) {
+            $details = $ErrorRecord.ErrorDetails.Message
+            if ($details.Length -gt 400) {
+                $details = $details.Substring(0, 400) + "...(truncated)"
+            }
+            $message = "$message | Response: $details"
+        }
+    } catch {
+    }
+
+    return $message
+}
+
+function Show-DockerDiagnostics {
+    Write-Host "---- Docker container status (diagnostic) ----"
+    try {
+        docker ps --format "table {{.Names}}`t{{.Status}}`t{{.Ports}}"
+    } catch {
+        Write-Host "Unable to run docker ps for diagnostics."
+    }
+    Write-Host "---------------------------------------------"
+}
+
+function Assert-DockerAvailable {
+    try {
+        docker info | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "docker info returned exit code $LASTEXITCODE"
+        }
+    } catch {
+        throw "Docker daemon is not available. Start Docker Desktop and verify 'docker info' works before running this script."
+    }
+}
+
 Write-Host "== EITEL PoC Transfer Automation (with EDC Integration) =="
 Write-Host "Coordinator path: $CoordinatorPath"
 Write-Host "Node path:        $NodePath"
@@ -62,22 +104,24 @@ Write-Host "EDC Management URL: $EDCManagementUrl"
 $startedCoordinator = $null
 
 try {
+    Assert-DockerAvailable
+
     if (-not $SkipCoordinatorStart) {
         if (-not (Test-Path $CoordinatorPath)) {
             throw "Coordinator path not found: $CoordinatorPath"
         }
 
-        Write-Host "`n[1/11] Starting Coordinator..."
+        Write-Host "`n[1/12] Starting Coordinator..."
         $startedCoordinator = Start-Process `
             -FilePath "uv" `
             -ArgumentList @("run", "fastapi", "dev", "src/coordinator/main.py") `
             -WorkingDirectory $CoordinatorPath `
             -PassThru
     } else {
-        Write-Host "`n[1/11] Skipping Coordinator start (using existing instance)."
+        Write-Host "`n[1/12] Skipping Coordinator start (using existing instance)."
     }
 
-    Write-Host "[2/11] Waiting for Coordinator API..."
+    Write-Host "[2/12] Waiting for Coordinator API..."
     Invoke-WithRetry -Description "Coordinator health check" -Action {
         Invoke-RestMethod -Uri "http://localhost:8000/health" -Method Get | Out-Null
     } | Out-Null
@@ -88,7 +132,16 @@ try {
 
     Push-Location $NodePath
     try {
-        Write-Host "[3/11] Starting producer and consumer containers..."
+        Write-Host "[3/12] Creating shared network and starting containers..."
+
+        # Create shared network if it doesn't exist
+        $networkExists = docker network ls --filter "name=^eitel-shared$" --quiet
+        if ([string]::IsNullOrWhiteSpace($networkExists)) {
+            Write-Host "  Creating docker network: eitel-shared"
+            docker network create eitel-shared --driver bridge
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create shared network." }
+        }
+
         $buildArg = if ($NoBuild) { "" } else { "--build" }
 
         docker compose -f docker-compose.producer.yml up -d $buildArg
@@ -97,7 +150,7 @@ try {
         docker compose -f docker-compose.consumer.yml up -d $buildArg
         if ($LASTEXITCODE -ne 0) { throw "Failed to start consumer compose stack." }
 
-        Write-Host "[4/11] Waiting for node health endpoints..."
+        Write-Host "[4/12] Waiting for node health endpoints..."
         $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Action {
             Invoke-RestMethod -Uri "http://localhost:8080/health" -Method Get
         }
@@ -110,7 +163,7 @@ try {
         Write-Host "Producer DID: $nodePDID"
         Write-Host "Consumer DID: $nodeCDID"
 
-        Write-Host "[5/11] Requesting Verifiable Credentials..."
+        Write-Host "[5/12] Requesting Verifiable Credentials..."
         $vcP = Invoke-JsonPost -Url "http://localhost:8000/credentials" -Body @{
             participantName = "UC3M Producer"
             participantId   = "node-p"
@@ -124,17 +177,34 @@ try {
             role            = "consumer"
         }
 
-        Write-Host "[6/11] Seeding test dataset in producer Copyparty..."
+        Write-Host "[6/12] Seeding test dataset in producer Copyparty..."
         $datasetName = "test-dataset.json"
         $datasetPayload = '{"dataset":"project-star","owner":"producer-node","records":[{"id":1,"value":"alpha"},{"id":2,"value":"beta"}]}'
         $seedCmd = "printf '%s`n' '$datasetPayload' > /data/$datasetName"
         docker exec eitel-node-copyparty-producer sh -c $seedCmd
         if ($LASTEXITCODE -ne 0) { throw "Failed to seed dataset in producer Copyparty." }
 
-        Write-Host "[7/11] Pre-registering asset in producer EDC..."
+        Write-Host "[7/12] Waiting for producer EDC management API..."
+        # Use Test-NetConnection for robust port connectivity check
+        # This avoids HTTP parsing issues and focuses on what matters: is the port open?
+        $port = 11002
+        Invoke-WithRetry -Description "EDC management API port availability" -Retries 60 -DelaySeconds 2 -Action {
+            $result = Test-NetConnection -ComputerName localhost -Port $port -WarningAction SilentlyContinue
+            if (-not $result.TcpTestSucceeded) {
+                throw "EDC management API port $port not responding"
+            }
+        } | Out-Null
+
+        # Grace period to allow EDC to fully initialize after port is open
+        Write-Host "  Giving EDC 2 seconds to fully initialize..."
+        Start-Sleep -Seconds 2
+
+        Write-Host "[8/12] Pre-registering asset in producer EDC..."
         $assetId = $datasetName
         $assetPayload = @{
-            "@context" = "https://w3id.org/edc/v0.0.1/ns/"
+            "@context" = @{
+                "@vocab" = "https://w3id.org/edc/v0.0.1/ns/"
+            }
             id = $assetId
             properties = @{
                 "https://w3id.org/edc/v0.0.1/ns/name" = "Test Dataset"
@@ -146,14 +216,20 @@ try {
             }
         }
 
-        $assetRegistration = Invoke-JsonPost `
-            -Url "$EDCManagementUrl/v3/assets" `
-            -Body $assetPayload `
-            -Headers @{ "x-api-key" = $EDCApiKey }
+        try {
+            $assetRegistration = Invoke-JsonPost `
+                -Url "$EDCManagementUrl/v3/assets" `
+                -Body $assetPayload `
+                -Headers @{ "x-api-key" = $EDCApiKey }
+        } catch {
+            $errorMessage = Get-HttpErrorMessage -ErrorRecord $_
+            Show-DockerDiagnostics
+            throw "Asset registration failed at $EDCManagementUrl/v3/assets. $errorMessage"
+        }
 
         Write-Host "Asset registered with ID: $($assetRegistration.id)"
 
-        Write-Host "[8/11] Executing consumer-to-producer handshake..."
+        Write-Host "[9/12] Executing consumer-to-producer handshake..."
         $resultCtoP = Invoke-JsonPost -Url "http://localhost:8080/handshake/initiate" -Body @{
             did       = $nodeCDID
             eitel_vc  = $vcC
@@ -176,17 +252,23 @@ try {
 
         Write-Host "Handshake successful. DSP endpoint: $peerDspEndpoint"
 
-        Write-Host "[9/11] Consumer requesting EDC transfer negotiation..."
+        Write-Host "[10/12] Consumer requesting EDC transfer negotiation..."
         $artifactDir = Join-Path $NodePath ".runbook-artifacts"
         New-Item -Path $artifactDir -ItemType Directory -Force | Out-Null
 
-        $negotiationRequest = Invoke-JsonPost `
-            -Url "http://localhost:8081/transfer/negotiate" `
-            -Headers @{ Authorization = "Bearer $tokenCtoP" } `
-            -Body @{
-                peer_dsp_endpoint = $peerDspEndpoint
-                file_path = $datasetName
-            }
+        try {
+            $negotiationRequest = Invoke-JsonPost `
+                -Url "http://localhost:8081/transfer/negotiate" `
+                -Headers @{ Authorization = "Bearer $tokenCtoP" } `
+                -Body @{
+                    peer_dsp_endpoint = $peerDspEndpoint
+                    file_path = $datasetName
+                }
+        } catch {
+            $errorMessage = Get-HttpErrorMessage -ErrorRecord $_
+            Show-DockerDiagnostics
+            throw "Transfer negotiation request failed at consumer handshake API. $errorMessage"
+        }
 
         if ($negotiationRequest.status -ne "ok") {
             throw "Transfer negotiation failed. Status: $($negotiationRequest.status). Error: $($negotiationRequest.error)"
@@ -196,7 +278,7 @@ try {
         $negotiationId = $negotiationRequest.negotiation_id
         Write-Host "Transfer initiated. Transfer ID: $transferId, Negotiation ID: $negotiationId"
 
-        Write-Host "[10/11] Polling for transfer completion..."
+        Write-Host "[11/12] Polling for transfer completion..."
         $transferComplete = $false
         $pollRetries = 60
         $pollDelay = 1
@@ -204,10 +286,15 @@ try {
         for ($i = 0; $i -lt $pollRetries; $i++) {
             Write-Host "  Poll attempt $($i + 1)/$pollRetries..."
 
-            $transferStatus = Invoke-RestMethod `
-                -Uri "$EDCManagementUrl/v3/transferprocesses/$transferId" `
-                -Method Get `
-                -Headers @{ "x-api-key" = $EDCApiKey }
+            try {
+                $transferStatus = Invoke-RestMethod `
+                    -Uri "$EDCManagementUrl/v3/transferprocesses/$transferId" `
+                    -Method Get `
+                    -Headers @{ "x-api-key" = $EDCApiKey }
+            } catch {
+                $errorMessage = Get-HttpErrorMessage -ErrorRecord $_
+                throw "Transfer polling failed for transfer ID '$transferId'. $errorMessage"
+            }
 
             $state = $transferStatus.state
             Write-Host "    Transfer state: $state"
@@ -230,7 +317,7 @@ try {
 
         Write-Host "Transfer completed successfully."
 
-        Write-Host "[11/11] Writing execution artifact..."
+        Write-Host "[12/12] Writing execution artifact..."
         $artifact = [ordered]@{
             timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
             coordinator_started_by_script = [bool](-not $SkipCoordinatorStart)
