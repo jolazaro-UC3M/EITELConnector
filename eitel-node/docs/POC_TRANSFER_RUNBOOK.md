@@ -87,20 +87,20 @@ Use the transfer automation script:
 
 ```powershell
 cd C:\Users\Jorge\Documents\star\EITELConnector\eitel-node
-powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-trasnfer.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-transfer.ps1
 ```
 
 Useful options:
 
 ```powershell
 # Reuse an already-running Coordinator
-powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-trasnfer.ps1 -SkipCoordinatorStart
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-transfer.ps1 -SkipCoordinatorStart
 
 # Skip docker image rebuilds
-powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-trasnfer.ps1 -NoBuild
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-transfer.ps1 -NoBuild
 
 # Stop stacks when successful
-powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-trasnfer.ps1 -TeardownOnSuccess
+powershell -ExecutionPolicy Bypass -File .\scripts\run-poc-transfer.ps1 -TeardownOnSuccess
 ```
 
 The script writes:
