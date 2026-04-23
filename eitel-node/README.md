@@ -46,7 +46,7 @@ Las variables de entorno (prefijo `EITEL_NODE_`) se cargan desde `.env`:
 ```bash
 # En eitel-node/handshake/.env
 EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
-EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-control:8182
+EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-control:11002/management
 EITEL_NODE_NODE_IDENTITY_DIR=/identity
 EITEL_NODE_SESSION_TOKEN_TTL=3600
 EITEL_NODE_SESSION_TOKEN_SECRET=cambiar-a-secreto-fuerte-en-produccion
@@ -200,9 +200,10 @@ Después del handshake, el Coordinador no está en la ruta de datos.
 
 ## Integración EDC
 
-El handshake app se conecta a un plano de control EDC (Eclipse Dataspace Connector) para:
+El handshake app se conecta al Management API de EDC (Eclipse Dataspace Connector) para:
 - Negociación de contratos (protocolo DSP)
 - Consultas de catálogo de activos
+- Inicio y seguimiento de transferencias
 
 Para el PoC, EDC es proporcionado por los servicios `caas/` en este mismo repositorio. 
 
@@ -210,9 +211,20 @@ La separación de capas es:
 - **EDC (Capa 2):** Define QUIÉN puede acceder a QUÉ (control de acceso, políticas, contratos)
 - **copyparty (Capa 3):** Maneja los BYTES de datos (almacenamiento, transferencia)
 
-El flujo es: Handshake → EDC (negociación) → copyparty (transferencia)
+El flujo es: Handshake → EDC (catálogo/negociación/transferencia) → copyparty
 
-Nota: La integración EDC está en desarrollo. Las llamadas a negociación devuelven stubs (mensajes de error); las consultas de catálogo son funcionales. Los stubs serán reemplazados conforme se implemente la integración completa.
+Endpoints de gestión esperados para este PoC:
+- Base URL: `http://<edc-host>:11002/management`
+- Endpoints relativos: `/v3/catalog/request`, `/v3/contractnegotiations/*`, `/v3/transferprocesses/*`, `/v3/assets`
+
+### Troubleshooting EDC PoC
+
+- Si falla el paso de registro de activos o negociación en el script, valida primero que el puerto `11002` esté accesible.
+- Verifica API key y base URL (`EITEL_NODE_EDC_MANAGEMENT_URL` y `EITEL_NODE_EDC_API_KEY`).
+- Ejecuta el flujo automatizado desde `eitel-node/scripts/run-poc-transfer.ps1`; el script ya emite diagnósticos HTTP y estado de contenedores.
+- Comprueba manualmente el Management API:
+  - `curl -H "x-api-key: poc-api-key" http://localhost:11002/management/v3/transferprocesses`
+  - `curl -H "x-api-key: poc-api-key" http://localhost:11002/management/v3/assets`
 
 ## Tecnologías
 
