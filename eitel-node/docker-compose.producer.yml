@@ -22,7 +22,7 @@ services:
       - eitel-producer
       - eitel-shared
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health').raise_for_status()"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -85,7 +85,7 @@ services:
       - -c
       - "pip install -q copyparty && python3 -m copyparty -p 3923 -v /data:/files:rw,eitel -a eitel:${COPYPARTY_PASSWORD:-changeme} -e2dsa"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3923/').read()"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3923/').read()"]
       interval: 10s
       timeout: 5s
       retries: 3

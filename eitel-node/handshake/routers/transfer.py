@@ -251,7 +251,7 @@ async def negotiate_transfer(
             )
 
         # Step 1: Query peer's catalogue
-        catalogue = await edc_client.get_catalogue(req.peer_dsp_endpoint)
+        catalogue = await edc_client.get_catalogue(req.peer_dsp_endpoint, counterparty_did=peer_did)
         if catalogue.error:
             raise HTTPException(
                 status_code=400, detail=f"Failed to query catalogue: {catalogue.error}"
