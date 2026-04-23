@@ -4,7 +4,9 @@ param(
     [string]$NodePath = "",
     [switch]$SkipCoordinatorStart,
     [switch]$NoBuild,
-    [switch]$TeardownOnSuccess
+    [switch]$TeardownOnSuccess,
+    [string]$EDCManagementUrl = "http://localhost:8182",
+    [string]$EDCApiKey = "change-me"
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,9 +54,10 @@ function Invoke-JsonPost {
         -Body ($Body | ConvertTo-Json -Depth 20)
 }
 
-Write-Host "== EITEL PoC Transfer Automation =="
+Write-Host "== EITEL PoC Transfer Automation (with EDC Integration) =="
 Write-Host "Coordinator path: $CoordinatorPath"
 Write-Host "Node path:        $NodePath"
+Write-Host "EDC Management URL: $EDCManagementUrl"
 
 $startedCoordinator = $null
 
@@ -64,17 +67,17 @@ try {
             throw "Coordinator path not found: $CoordinatorPath"
         }
 
-        Write-Host "`n[1/10] Starting Coordinator..."
+        Write-Host "`n[1/11] Starting Coordinator..."
         $startedCoordinator = Start-Process `
             -FilePath "uv" `
             -ArgumentList @("run", "fastapi", "dev", "src/coordinator/main.py") `
             -WorkingDirectory $CoordinatorPath `
             -PassThru
     } else {
-        Write-Host "`n[1/10] Skipping Coordinator start (using existing instance)."
+        Write-Host "`n[1/11] Skipping Coordinator start (using existing instance)."
     }
 
-    Write-Host "[2/10] Waiting for Coordinator API..."
+    Write-Host "[2/11] Waiting for Coordinator API..."
     Invoke-WithRetry -Description "Coordinator health check" -Action {
         Invoke-RestMethod -Uri "http://localhost:8000/health" -Method Get | Out-Null
     } | Out-Null
@@ -85,7 +88,7 @@ try {
 
     Push-Location $NodePath
     try {
-        Write-Host "[3/10] Starting producer and consumer containers..."
+        Write-Host "[3/11] Starting producer and consumer containers..."
         $buildArg = if ($NoBuild) { "" } else { "--build" }
 
         docker compose -f docker-compose.producer.yml up -d $buildArg
@@ -94,7 +97,7 @@ try {
         docker compose -f docker-compose.consumer.yml up -d $buildArg
         if ($LASTEXITCODE -ne 0) { throw "Failed to start consumer compose stack." }
 
-        Write-Host "[4/10] Waiting for node health endpoints..."
+        Write-Host "[4/11] Waiting for node health endpoints..."
         $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Action {
             Invoke-RestMethod -Uri "http://localhost:8080/health" -Method Get
         }
@@ -107,7 +110,7 @@ try {
         Write-Host "Producer DID: $nodePDID"
         Write-Host "Consumer DID: $nodeCDID"
 
-        Write-Host "[5/10] Requesting Verifiable Credentials..."
+        Write-Host "[5/11] Requesting Verifiable Credentials..."
         $vcP = Invoke-JsonPost -Url "http://localhost:8000/credentials" -Body @{
             participantName = "UC3M Producer"
             participantId   = "node-p"
@@ -121,14 +124,36 @@ try {
             role            = "consumer"
         }
 
-        Write-Host "[6/10] Seeding test dataset in producer Copyparty..."
+        Write-Host "[6/11] Seeding test dataset in producer Copyparty..."
         $datasetName = "test-dataset.json"
         $datasetPayload = '{"dataset":"project-star","owner":"producer-node","records":[{"id":1,"value":"alpha"},{"id":2,"value":"beta"}]}'
         $seedCmd = "printf '%s`n' '$datasetPayload' > /data/$datasetName"
         docker exec eitel-node-copyparty-producer sh -c $seedCmd
         if ($LASTEXITCODE -ne 0) { throw "Failed to seed dataset in producer Copyparty." }
 
-        Write-Host "[7/10] Executing consumer-to-producer handshake..."
+        Write-Host "[7/11] Pre-registering asset in producer EDC..."
+        $assetId = $datasetName
+        $assetPayload = @{
+            "@context" = "https://w3id.org/edc/v0.0.1/ns/"
+            id = $assetId
+            properties = @{
+                "https://w3id.org/edc/v0.0.1/ns/name" = "Test Dataset"
+            }
+            dataAddress = @{
+                "@type" = "HttpData"
+                baseUrl = "http://copyparty:3923/files"
+                type = "HttpData"
+            }
+        }
+
+        $assetRegistration = Invoke-JsonPost `
+            -Url "$EDCManagementUrl/v3/assets" `
+            -Body $assetPayload `
+            -Headers @{ "x-api-key" = $EDCApiKey }
+
+        Write-Host "Asset registered with ID: $($assetRegistration.id)"
+
+        Write-Host "[8/11] Executing consumer-to-producer handshake..."
         $resultCtoP = Invoke-JsonPost -Url "http://localhost:8080/handshake/initiate" -Body @{
             did       = $nodeCDID
             eitel_vc  = $vcC
@@ -144,49 +169,83 @@ try {
             throw "Producer did not return a session token."
         }
 
-        Write-Host "[8/10] Consumer requesting file from producer transfer endpoint..."
+        $peerDspEndpoint = $resultCtoP.dsp_endpoint
+        if ([string]::IsNullOrWhiteSpace($peerDspEndpoint)) {
+            throw "Producer did not return DSP endpoint in handshake response."
+        }
+
+        Write-Host "Handshake successful. DSP endpoint: $peerDspEndpoint"
+
+        Write-Host "[9/11] Consumer requesting EDC transfer negotiation..."
         $artifactDir = Join-Path $NodePath ".runbook-artifacts"
         New-Item -Path $artifactDir -ItemType Directory -Force | Out-Null
 
-        $downloadedPath = Join-Path $artifactDir "downloaded-$datasetName"
-        $response = Invoke-WebRequest `
-            -Uri "http://localhost:8080/transfer/download" `
-            -Method Post `
+        $negotiationRequest = Invoke-JsonPost `
+            -Url "http://localhost:8081/transfer/negotiate" `
             -Headers @{ Authorization = "Bearer $tokenCtoP" } `
-            -ContentType "application/json" `
-            -Body (@{ file_path = $datasetName } | ConvertTo-Json -Depth 10) `
-            -OutFile $downloadedPath
+            -Body @{
+                peer_dsp_endpoint = $peerDspEndpoint
+                file_path = $datasetName
+            }
 
-        Write-Host "[9/10] Verifying transferred payload..."
-        if (-not (Test-Path $downloadedPath)) {
-            throw "Transferred file was not created: $downloadedPath"
+        if ($negotiationRequest.status -ne "ok") {
+            throw "Transfer negotiation failed. Status: $($negotiationRequest.status). Error: $($negotiationRequest.error)"
         }
 
-        $downloadedBytes = (Get-Item $downloadedPath).Length
-        if ($downloadedBytes -le 0) {
-            throw "Transferred file is empty: $downloadedPath"
+        $transferId = $negotiationRequest.transfer_process_id
+        $negotiationId = $negotiationRequest.negotiation_id
+        Write-Host "Transfer initiated. Transfer ID: $transferId, Negotiation ID: $negotiationId"
+
+        Write-Host "[10/11] Polling for transfer completion..."
+        $transferComplete = $false
+        $pollRetries = 60
+        $pollDelay = 1
+
+        for ($i = 0; $i -lt $pollRetries; $i++) {
+            Write-Host "  Poll attempt $($i + 1)/$pollRetries..."
+
+            $transferStatus = Invoke-RestMethod `
+                -Uri "$EDCManagementUrl/v3/transferprocesses/$transferId" `
+                -Method Get `
+                -Headers @{ "x-api-key" = $EDCApiKey }
+
+            $state = $transferStatus.state
+            Write-Host "    Transfer state: $state"
+
+            if ($state -eq "COMPLETED") {
+                $transferComplete = $true
+                break
+            } elseif ($state -in @("FAILED", "TERMINATED", "ERROR")) {
+                throw "Transfer failed with state: $state"
+            }
+
+            if ($i -lt $pollRetries - 1) {
+                Start-Sleep -Seconds $pollDelay
+            }
         }
 
-        $downloadedContent = Get-Content -Path $downloadedPath -Raw
-        if ($downloadedContent -notmatch "project-star") {
-            throw "Transferred content did not match expected marker."
+        if (-not $transferComplete) {
+            throw "Transfer did not complete within $($pollRetries * $pollDelay) seconds."
         }
 
-        Write-Host "Transfer OK. Saved file: $downloadedPath ($downloadedBytes bytes)"
+        Write-Host "Transfer completed successfully."
 
-        Write-Host "[10/10] Writing execution artifact..."
+        Write-Host "[11/11] Writing execution artifact..."
         $artifact = [ordered]@{
             timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
             coordinator_started_by_script = [bool](-not $SkipCoordinatorStart)
             producer_did = $nodePDID
             consumer_did = $nodeCDID
             dataset_name = $datasetName
-            handshake_status = $resultCtoP.status
-            transfer = @{
-                requested_by = "consumer"
-                served_by = "producer"
-                download_path = $downloadedPath
-                bytes = $downloadedBytes
+            handshake = @{
+                status = $resultCtoP.status
+                producer_dsp_endpoint = $peerDspEndpoint
+            }
+            edc = @{
+                asset_id = $assetId
+                negotiation_id = $negotiationId
+                transfer_id = $transferId
+                transfer_status = "COMPLETED"
             }
         }
 
@@ -194,7 +253,7 @@ try {
         $artifact | ConvertTo-Json -Depth 10 | Set-Content -Path $artifactPath -Encoding UTF8
 
         Write-Host ""
-        Write-Host "Handshake + transfer complete."
+        Write-Host "Handshake + EDC negotiation + transfer complete."
         Write-Host "Artifact: $artifactPath"
 
         if ($TeardownOnSuccess) {

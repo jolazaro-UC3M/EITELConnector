@@ -29,6 +29,40 @@ services:
       retries: 3
     restart: unless-stopped
 
+  edc-control:
+    image: mariwogr/eitel-connector:latest
+    container_name: eitel-node-edc-producer
+    ports:
+      - "8182:8182"
+      - "11000:11000"
+      - "11001:11001"
+      - "11002:11002"
+      - "11003:11003"
+    environment:
+      - EDC_PARTICIPANT_ID=${EDC_PARTICIPANT_ID:-producer-connector}
+      - EDC_JDBC_URL=jdbc:postgresql://postgres:5432/edc
+      - EDC_JDBC_USER=postgres
+      - EDC_JDBC_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - EDC_API_AUTH_KEY=${EDC_API_AUTH_KEY:-change-me}
+    networks:
+      - eitel-producer
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: eitel-node-postgres-producer
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=edc
+    volumes:
+      - postgres_data_producer:/var/lib/postgresql/data
+    networks:
+      - eitel-producer
+    restart: unless-stopped
+
   copyparty:
     image: python:3.11-slim
     container_name: eitel-node-copyparty-producer
@@ -58,3 +92,4 @@ networks:
 
 volumes:
   copyparty_data_producer:
+  postgres_data_producer:
