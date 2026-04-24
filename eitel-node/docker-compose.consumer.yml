@@ -7,11 +7,12 @@ services:
     ports:
       - "8081:8080"
     environment:
-      - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
-      - EITEL_NODE_NODE_IDENTITY_DIR=/identity
       - EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-control:11002/management
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-poc-api-key}
-      - EITEL_NODE_EDC_DSP_ENDPOINT=${EITEL_NODE_EDC_DSP_ENDPOINT:-http://localhost:11003/api/v1/dsp}
+      - EITEL_NODE_EDC_DSP_ENDPOINT=http://edc-control:11003/api/v1/dsp
+      - EITEL_NODE_EDC_DATA_PLANE_URL=http://eitel-node-copyparty-consumer:3923/files
+      - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
+      - EITEL_NODE_NODE_IDENTITY_DIR=/identity
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
       - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-C-change-me
       - COPYPARTY_URL=http://copyparty:3923
@@ -43,15 +44,17 @@ services:
       - WEB_HTTP_MANAGEMENT_PATH=/management
       - WEB_HTTP_PROTOCOL_PORT=11003
       - WEB_HTTP_PROTOCOL_PATH=/api/v1/dsp
-      - EDC_DSP_CALLBACK_ADDRESS=http://edc-control:11003/api/v1/dsp
+      - EDC_DSP_CALLBACK_ADDRESS=http://edc-consumer-control:11003/api/v1/dsp
       - EDC_JDBC_URL=jdbc:postgresql://postgres:5432/edc
       - EDC_JDBC_USER=postgres
       - EDC_JDBC_PASSWORD=${POSTGRES_PASSWORD:-changeme}
       - EDC_API_AUTH_KEY=${EDC_API_AUTH_KEY:-poc-api-key}
       - EDC_MANAGEMENT_CONTEXT_ENABLED=true
     networks:
-      - eitel-consumer
-      - eitel-shared
+      eitel-consumer:
+      eitel-shared:
+          aliases:
+            - edc-consumer-control
     depends_on:
       - postgres
     volumes:
@@ -80,6 +83,7 @@ services:
       - copyparty_data_consumer:/data
     networks:
       - eitel-consumer
+      - eitel-shared
     environment:
       - COPYPARTY_PASSWORD=${COPYPARTY_PASSWORD:-changeme}
     command:

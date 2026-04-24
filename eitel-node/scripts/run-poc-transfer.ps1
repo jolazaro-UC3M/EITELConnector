@@ -4,6 +4,7 @@ param(
     [string]$NodePath = "",
     [switch]$SkipCoordinatorStart,
     [switch]$NoBuild,
+    [switch]$BuildEDC,
     [switch]$TeardownOnSuccess,
     [string]$EDCManagementUrl = "http://localhost:11002/management",
     [string]$EDCApiKey = "poc-api-key"
@@ -96,6 +97,28 @@ function Assert-DockerAvailable {
     }
 }
 
+$edcImageName = "eitel/eclipse-edc-runtime:0.16.0"
+$edcDockerfilePath = (Resolve-Path (Join-Path $NodePath "..\deploy")).Path
+
+if ($BuildEDC) {
+    Write-Host "`n[PRE] Building EDC image: $edcImageName"
+    if (-not (Test-Path $edcDockerfilePath)) {
+        throw "EDC Dockerfile not found at: $edcDockerfilePath. Check -NodePath or the deploy/ directory."
+    }
+    docker build -t $edcImageName $edcDockerfilePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "EDC image build failed."
+    }
+    Write-Host "EDC image built successfully: $edcImageName"
+}
+elseif (-not $NoBuild) {
+    $imageExists = docker images -q $edcImageName
+    if ([string]::IsNullOrWhiteSpace($imageExists)) {
+        Write-Warning "EDC image '$edcImageName' not found locally. Run with -BuildEDC to build it, or pull it manually."
+        Write-Warning "Continuing anyway - docker compose will fail if the image is missing."
+    }
+}
+
 Write-Host "== EITEL PoC Transfer Automation (with EDC Integration) =="
 Write-Host "Coordinator path: $CoordinatorPath"
 Write-Host "Node path:        $NodePath"
@@ -122,7 +145,8 @@ try {
     }
 
     Write-Host "[2/12] Waiting for Coordinator API..."
-    Invoke-WithRetry -Description "Coordinator health check" -Action {
+    Start-Sleep -Seconds 3
+    Invoke-WithRetry -Description "Coordinator health check" -Retries 40 -DelaySeconds 3 -Action {
         Invoke-RestMethod -Uri "http://localhost:8000/health" -Method Get | Out-Null
     } | Out-Null
 
@@ -151,10 +175,11 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Failed to start consumer compose stack." }
 
         Write-Host "[4/12] Waiting for node health endpoints..."
-        $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Action {
+        Start-Sleep -Seconds 5
+        $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Retries 45 -DelaySeconds 3 -Action {
             Invoke-RestMethod -Uri "http://localhost:8080/health" -Method Get
         }
-        $healthC = Invoke-WithRetry -Description "Consumer health endpoint" -Action {
+        $healthC = Invoke-WithRetry -Description "Consumer health endpoint" -Retries 45 -DelaySeconds 3 -Action {
             Invoke-RestMethod -Uri "http://localhost:8081/health" -Method Get
         }
 
@@ -188,7 +213,7 @@ try {
         # Use Test-NetConnection for robust port connectivity check
         # This avoids HTTP parsing issues and focuses on what matters: is the port open?
         $port = 11002
-        Invoke-WithRetry -Description "EDC management API port availability" -Retries 60 -DelaySeconds 2 -Action {
+        Invoke-WithRetry -Description "EDC management API port availability" -Retries 90 -DelaySeconds 3 -Action {
             $result = Test-NetConnection -ComputerName localhost -Port $port -WarningAction SilentlyContinue
             if (-not $result.TcpTestSucceeded) {
                 throw "EDC management API port $port not responding"
@@ -196,8 +221,8 @@ try {
         } | Out-Null
 
         # Grace period to allow EDC to fully initialize after port is open
-        Write-Host "  Giving EDC 2 seconds to fully initialize..."
-        Start-Sleep -Seconds 2
+        Write-Host "  Giving EDC 5 seconds to fully initialize..."
+        Start-Sleep -Seconds 5
 
         Write-Host "[8/12] Pre-registering asset in producer EDC..."
         $assetId = $datasetName
@@ -280,8 +305,8 @@ try {
 
         Write-Host "[11/12] Polling for transfer completion..."
         $transferComplete = $false
-        $pollRetries = 60
-        $pollDelay = 1
+        $pollRetries = 120
+        $pollDelay = 2
 
         for ($i = 0; $i -lt $pollRetries; $i++) {
             Write-Host "  Poll attempt $($i + 1)/$pollRetries..."
