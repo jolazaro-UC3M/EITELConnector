@@ -6,7 +6,7 @@ param(
     [switch]$NoBuild,
     [switch]$BuildEDC,
     [switch]$TeardownOnSuccess,
-    [string]$EDCManagementUrl = "http://localhost:11002/management",
+    [string]$EDCManagementUrl = "http://localhost:11002/api/management",
     [string]$EDCApiKey = "poc-api-key"
 )
 
