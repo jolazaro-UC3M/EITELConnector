@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   edc-control:
-    image: mariwogr/eitel:v1
+    image: eitel-local:v2
     container_name: eitel-node-edc-consumer
     ports:
       - "11010:11000"
