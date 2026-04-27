@@ -25,16 +25,24 @@ function Invoke-WithRetry {
         [scriptblock]$Action,
         [int]$Retries = 30,
         [int]$DelaySeconds = 2,
-        [string]$Description = "operation"
+        [string]$Description = "operation",
+        [int]$TimeoutSeconds = 300
     )
 
+    $startTime = Get-Date
+    $timeoutTime = $startTime.AddSeconds($TimeoutSeconds)
+
     for ($i = 1; $i -le $Retries; $i++) {
+        if ((Get-Date) -gt $timeoutTime) {
+            throw "Failed ${Description}: timeout after $TimeoutSeconds seconds"
+        }
         try {
             return & $Action
         } catch {
             if ($i -eq $Retries) {
-                throw "Failed $Description after $Retries attempts. Last error: $($_.Exception.Message)"
+                throw "Failed ${Description} after $Retries attempts. Last error: $($_.Exception.Message)"
             }
+            Write-Host "  Attempt $i failed, retrying in $DelaySeconds seconds..."
             Start-Sleep -Seconds $DelaySeconds
         }
     }
@@ -44,7 +52,8 @@ function Invoke-JsonPost {
     param(
         [string]$Url,
         [hashtable]$Body,
-        [hashtable]$Headers = @{}
+        [hashtable]$Headers = @{},
+        [int]$TimeoutSec = 30
     )
 
     return Invoke-RestMethod `
@@ -52,7 +61,8 @@ function Invoke-JsonPost {
         -Method Post `
         -ContentType "application/json" `
         -Headers $Headers `
-        -Body ($Body | ConvertTo-Json -Depth 20)
+        -Body ($Body | ConvertTo-Json -Depth 20) `
+        -TimeoutSec $TimeoutSec
 }
 
 function Get-HttpErrorMessage {
@@ -216,13 +226,17 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Failed to seed dataset in producer Copyparty." }
 
         Write-Host "[7/12] Waiting for producer EDC management API..."
-        # Use Test-NetConnection for robust port connectivity check
-        # This avoids HTTP parsing issues and focuses on what matters: is the port open?
-        $port = 11002
-        Invoke-WithRetry -Description "EDC management API port availability" -Retries 90 -DelaySeconds 3 -Action {
-            $result = Test-NetConnection -ComputerName localhost -Port $port -WarningAction SilentlyContinue
-            if (-not $result.TcpTestSucceeded) {
-                throw "EDC management API port $port not responding"
+        # Use cross-platform HTTP check (works on Windows, Linux, macOS with PowerShell Core)
+        Invoke-WithRetry -Description "EDC management API availability" -Retries 90 -DelaySeconds 3 -Action {
+            try {
+                $response = Invoke-WebRequest -Uri "http://localhost:11002/api/management/v3/assets" `
+                    -Method Options `
+                    -Headers @{ "x-api-key" = $EDCApiKey } `
+                    -TimeoutSec 5 `
+                    -ErrorAction Stop
+            } catch {
+                # Connection refused or timeout - EDC not ready yet
+                throw "EDC management API not responding: $($_.Exception.Message)"
             }
         } | Out-Null
 
@@ -313,15 +327,22 @@ try {
         $transferComplete = $false
         $pollRetries = 120
         $pollDelay = 2
+        $pollStartTime = Get-Date
+        $pollTimeoutSeconds = 300
 
         for ($i = 0; $i -lt $pollRetries; $i++) {
+            if ((Get-Date) - $pollStartTime -gt (New-TimeSpan -Seconds $pollTimeoutSeconds)) {
+                throw "Transfer polling timeout after $pollTimeoutSeconds seconds"
+            }
+
             Write-Host "  Poll attempt $($i + 1)/$pollRetries..."
 
             try {
                 $transferStatus = Invoke-RestMethod `
                     -Uri "$EDCManagementUrl/v3/transferprocesses/$transferId" `
                     -Method Get `
-                    -Headers @{ "x-api-key" = $EDCApiKey }
+                    -Headers @{ "x-api-key" = $EDCApiKey } `
+                    -TimeoutSec 10
             } catch {
                 $errorMessage = Get-HttpErrorMessage -ErrorRecord $_
                 throw "Transfer polling failed for transfer ID '$transferId'. $errorMessage"

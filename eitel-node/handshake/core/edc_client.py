@@ -49,7 +49,7 @@ class EDCClient:
         """
         self.management_url = management_url.rstrip("/")
         self.api_key = api_key
-        self.client = httpx.AsyncClient(timeout=10.0)
+        self.client = httpx.AsyncClient(timeout=30.0)
 
     async def close(self) -> None:
         """Close the HTTP client."""
