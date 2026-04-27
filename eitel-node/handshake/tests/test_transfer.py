@@ -2,19 +2,66 @@
 Unit tests for the file transfer router: POST /transfer/download
 """
 
+import json
+import tempfile
+import sys
+from pathlib import Path
 from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi.testclient import TestClient
+from jwcrypto import jwk
 
+# Add package parent to path so package imports work during test collection
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from core.identity import NodeIdentity
 from core.session import SessionTokenManager
-from routers import transfer
+from handshake.routers import transfer
 
 
 @pytest.fixture
 def session_manager():
     """Create session token manager for testing."""
-    return SessionTokenManager(secret="test-secret-key", ttl_seconds=3600)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield SessionTokenManager(
+            node_identity=NodeIdentity.load_or_generate(Path(tmpdir)), ttl_seconds=3600
+        )
+
+
+@pytest.fixture
+def test_environment(monkeypatch):
+    """Prepare writable app startup paths and trust-anchor inputs."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_dir = Path(tmpdir)
+
+        identity_dir = temp_dir / "node_identity"
+        identity_dir.mkdir(parents=True, exist_ok=True)
+
+        private_key = ed25519.Ed25519PrivateKey.generate()
+        public_key = private_key.public_key()
+        key_obj = jwk.JWK.from_pyca(public_key)
+        jwk_dict = key_obj.export_public(as_dict=True)
+        jwk_dict["kid"] = "test-coordinator"
+        jwk_dict["use"] = "sig"
+
+        coordinator_jwk_file = temp_dir / "coordinator.jwk"
+        coordinator_jwk_file.write_text(json.dumps(jwk_dict))
+
+        monkeypatch.delenv("EITEL_NODE_SESSION_TOKEN_SECRET_P", raising=False)
+        monkeypatch.delenv("EITEL_NODE_SESSION_TOKEN_SECRET_C", raising=False)
+        monkeypatch.delenv("COPYPARTY_PASSWORD", raising=False)
+        monkeypatch.setenv("EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH", str(coordinator_jwk_file))
+        monkeypatch.setenv("EITEL_NODE_NODE_IDENTITY_DIR", str(identity_dir))
+        monkeypatch.setenv("EITEL_NODE_SESSION_TOKEN_SECRET", "test-secret-key-12345")
+        monkeypatch.setenv("EITEL_NODE_EDC_MANAGEMENT_URL", "http://localhost:8182")
+        monkeypatch.setenv("EITEL_NODE_EDC_API_KEY", "test-api-key")
+
+        yield {
+            "identity_dir": identity_dir,
+            "coordinator_jwk_file": coordinator_jwk_file,
+        }
 
 
 @pytest.fixture
@@ -26,7 +73,7 @@ def valid_token(session_manager):
 
 
 @pytest.fixture
-def test_client_transfer(session_manager, monkeypatch):
+def test_client_transfer(test_environment, session_manager, monkeypatch):
     """Create FastAPI app with transfer router initialized."""
     import sys
     from pathlib import Path
@@ -98,11 +145,11 @@ class TestTransferDownloadEndpointTokenValidation:
         assert response.status_code == 401
         assert "Invalid token" in response.json()["detail"]
 
-    def test_expired_token_returns_401(self, test_client_transfer):
+    def test_expired_token_returns_401(self, test_client_transfer, session_manager):
         """Expired token returns 401."""
         # Create expired token
         expired_manager = SessionTokenManager(
-            secret="test-secret-key", ttl_seconds=-1  # Already expired
+            node_identity=session_manager.node_identity, ttl_seconds=-1  # Already expired
         )
         expired_token = expired_manager.issue_token(
             subject="did:key:z6Mki...peer", audience="handshake"
@@ -116,10 +163,12 @@ class TestTransferDownloadEndpointTokenValidation:
         assert response.status_code == 401
         assert "Invalid token" in response.json()["detail"]
 
-    def test_wrong_audience_returns_401(self, test_client_transfer):
+    def test_wrong_audience_returns_401(self, test_client_transfer, session_manager):
         """Token with wrong audience returns 401."""
         # Create token with wrong audience
-        manager = SessionTokenManager(secret="test-secret-key", ttl_seconds=3600)
+        manager = SessionTokenManager(
+            node_identity=session_manager.node_identity, ttl_seconds=3600
+        )
         wrong_audience_token = manager.issue_token(
             subject="did:key:z6Mki...peer", audience="wrong-audience"
         )
@@ -136,7 +185,7 @@ class TestTransferDownloadEndpointTokenValidation:
 class TestTransferDownloadEndpointPathSanitization:
     """Test path sanitization in download endpoint."""
 
-    @patch("routers.transfer.httpx.AsyncClient")
+    @patch("handshake.routers.transfer.httpx.AsyncClient")
     def test_path_with_parent_directory_traversal_returns_400(
         self, mock_client_class, test_client_transfer, valid_token
     ):
@@ -149,7 +198,7 @@ class TestTransferDownloadEndpointPathSanitization:
         assert response.status_code == 400
         assert "parent directory traversal" in response.json()["detail"]
 
-    @patch("routers.transfer.httpx.AsyncClient")
+    @patch("handshake.routers.transfer.httpx.AsyncClient")
     def test_leading_slash_stripped(
         self, mock_client_class, test_client_transfer, valid_token
     ):
@@ -178,9 +227,9 @@ class TestTransferDownloadEndpointPathSanitization:
         # Verify the request was made without leading slash
         mock_client.get.assert_called_once()
         call_url = mock_client.get.call_args[0][0]
-        assert call_url == "http://copyparty:3923/files/path/to/file.json"
+        assert call_url == "http://copyparty:3923/files/path/to/file.json?pw=changeme"
 
-    @patch("routers.transfer.httpx.AsyncClient")
+    @patch("handshake.routers.transfer.httpx.AsyncClient")
     def test_normal_path_passes_through(
         self, mock_client_class, test_client_transfer, valid_token
     ):
@@ -208,13 +257,13 @@ class TestTransferDownloadEndpointPathSanitization:
         assert response.status_code == 200
         mock_client.get.assert_called_once()
         call_url = mock_client.get.call_args[0][0]
-        assert call_url == "http://copyparty:3923/files/folder/subfolder/data.csv"
+        assert call_url == "http://copyparty:3923/files/folder/subfolder/data.csv?pw=changeme"
 
 
 class TestTransferDownloadEndpointHappyPath:
     """Test successful download scenarios."""
 
-    @patch("routers.transfer.httpx.AsyncClient")
+    @patch("handshake.routers.transfer.httpx.AsyncClient")
     def test_valid_download_returns_200(
         self, mock_client_class, test_client_transfer, valid_token
     ):
@@ -241,7 +290,7 @@ class TestTransferDownloadEndpointHappyPath:
 
         assert response.status_code == 200
 
-    @patch("routers.transfer.httpx.AsyncClient")
+    @patch("handshake.routers.transfer.httpx.AsyncClient")
     def test_download_sets_content_disposition(
         self, mock_client_class, test_client_transfer, valid_token
     ):
@@ -271,7 +320,7 @@ class TestTransferDownloadEndpointHappyPath:
         assert "attachment" in response.headers["Content-Disposition"]
         assert "myfile.json" in response.headers["Content-Disposition"]
 
-    @patch("routers.transfer.httpx.AsyncClient")
+    @patch("handshake.routers.transfer.httpx.AsyncClient")
     def test_download_preserves_content_type(
         self, mock_client_class, test_client_transfer, valid_token
     ):
