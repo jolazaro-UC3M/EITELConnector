@@ -5,7 +5,7 @@ services:
     build: ./handshake
     container_name: eitel-node-handshake-producer
     ports:
-      - "8080:8080"
+      - "8090:8080"
     environment:
       - EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-producer-control:11002/api/management
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-poc-api-key}
@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
 
   edc-control:
-    image: eitel/eclipse-edc-runtime:0.16.0
+    image: mariwogr/eitel:v1
     container_name: eitel-node-edc-producer
     ports:
       - "11000:11000"
