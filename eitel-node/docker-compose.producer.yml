@@ -9,7 +9,7 @@ services:
     environment:
       - EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-producer-control:11002/api/management
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-poc-api-key}
-      - EITEL_NODE_EDC_DSP_ENDPOINT=http://edc-producer-control:11003/api/v1/dsp/2025-1
+      - EITEL_NODE_EDC_DSP_ENDPOINT=http://edc-producer-control:11003/api/v1/dsp
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
       - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-P-change-me
       - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
@@ -43,19 +43,22 @@ services:
       - WEB_HTTP_MANAGEMENT_PATH=/api/management
       - WEB_HTTP_PROTOCOL_PORT=11003
       - WEB_HTTP_PROTOCOL_PATH=/api/v1/dsp
-      - EDC_DSP_CALLBACK_ADDRESS=http://edc-producer-control:11003/api/v1/dsp/2025-1
+      - EDC_DSP_CALLBACK_ADDRESS=http://edc-producer-control:11003/api/v1/dsp
       - EDC_JDBC_URL=jdbc:postgresql://postgres:5432/edc
       - EDC_JDBC_USER=postgres
       - EDC_JDBC_PASSWORD=${POSTGRES_PASSWORD:-changeme}
       - EDC_API_AUTH_KEY=${EDC_API_AUTH_KEY:-poc-api-key}
       - EDC_MANAGEMENT_CONTEXT_ENABLED=true
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE=default
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_URL=http://edc-producer-control:11002
     networks:
       eitel-producer:
       eitel-shared:
           aliases:
             - edc-producer-control
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ../dataspaceconnector-configuration.properties:/opt/edc/dataspaceconnector-configuration.properties:ro
     restart: unless-stopped
@@ -71,6 +74,11 @@ services:
       - postgres_data_producer:/var/lib/postgresql/data
     networks:
       - eitel-producer
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d edc"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   copyparty:
@@ -82,6 +90,7 @@ services:
       - copyparty_data_producer:/data
     networks:
       - eitel-producer
+      - eitel-shared
     environment:
       - COPYPARTY_PASSWORD=${COPYPARTY_PASSWORD:-changeme}
     command:
