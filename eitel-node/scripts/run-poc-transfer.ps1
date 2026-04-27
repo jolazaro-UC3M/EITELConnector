@@ -299,10 +299,13 @@ try {
 
         Write-Host "[8b/12] Registering policy definition..."
         $policyPayload = @{
-            "@context" = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
+            "@context" = @{
+                "@vocab" = "https://w3id.org/edc/v0.0.1/ns/"
+                "odrl" = "http://www.w3.org/ns/odrl/2/"
+            }
             "@id"      = "default-policy"
             "policy"   = @{
-                "@type"      = "Set"
+                "@type"      = "odrl:Set"
                 "permission" = @(@{ "action" = "use" })
                 "prohibition" = @()
                 "obligation"  = @()
