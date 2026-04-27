@@ -65,7 +65,7 @@ try {
         Write-Host "`n[1/8] Starting Coordinator..."
         $startedCoordinator = Start-Process `
             -FilePath "uv" `
-            -ArgumentList @("run", "fastapi", "dev", "src/coordinator/main.py") `
+            -ArgumentList @("run", "uvicorn", "src.coordinator.main:app", "--host", "0.0.0.0", "--port", "8000") `
             -WorkingDirectory $CoordinatorPath `
             -PassThru
     } else {
@@ -84,20 +84,26 @@ try {
     Push-Location $NodePath
     try {
         Write-Host "[3/8] Starting producer and consumer containers..."
-        $buildArg = if ($NoBuild) { "" } else { "--build" }
-
-        docker compose -f docker-compose.producer.yml up -d $buildArg
+        if ($NoBuild) {
+            docker compose -f docker-compose.producer.yml up -d
+        } else {
+            docker compose -f docker-compose.producer.yml up -d --build
+        }
         if ($LASTEXITCODE -ne 0) { throw "Failed to start producer compose stack." }
 
-        docker compose -f docker-compose.consumer.yml up -d $buildArg
+        if ($NoBuild) {
+            docker compose -f docker-compose.consumer.yml up -d
+        } else {
+            docker compose -f docker-compose.consumer.yml up -d --build
+        }
         if ($LASTEXITCODE -ne 0) { throw "Failed to start consumer compose stack." }
 
         Write-Host "[4/8] Waiting for node health endpoints..."
         $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Action {
-            Invoke-RestMethod -Uri "http://localhost:8080/health" -Method Get
+            Invoke-RestMethod -Uri "http://localhost:8090/health" -Method Get
         }
         $healthC = Invoke-WithRetry -Description "Consumer health endpoint" -Action {
-            Invoke-RestMethod -Uri "http://localhost:8081/health" -Method Get
+            Invoke-RestMethod -Uri "http://localhost:8091/health" -Method Get
         }
 
         $nodePDID = $healthP.node_did
@@ -121,12 +127,12 @@ try {
         }
 
         Write-Host "[6/8] Running bidirectional handshakes..."
-        $resultPtoC = Invoke-JsonPost -Url "http://localhost:8081/handshake/initiate" -Body @{
+        $resultPtoC = Invoke-JsonPost -Url "http://localhost:8091/handshake/initiate" -Body @{
             did       = $nodePDID
             eitel_vc  = $vcP
             gaia_x_vp = $null
         }
-        $resultCtoP = Invoke-JsonPost -Url "http://localhost:8080/handshake/initiate" -Body @{
+        $resultCtoP = Invoke-JsonPost -Url "http://localhost:8090/handshake/initiate" -Body @{
             did       = $nodeCDID
             eitel_vc  = $vcC
             gaia_x_vp = $null
@@ -137,12 +143,12 @@ try {
 
         Write-Host "[7/8] Verifying peer registries with session tokens..."
         $statusFromC = Invoke-RestMethod `
-            -Uri "http://localhost:8081/status" `
+            -Uri "http://localhost:8091/status" `
             -Method Get `
             -Headers @{ Authorization = "Bearer $($resultPtoC.session_token)" }
 
         $statusFromP = Invoke-RestMethod `
-            -Uri "http://localhost:8080/status" `
+            -Uri "http://localhost:8090/status" `
             -Method Get `
             -Headers @{ Authorization = "Bearer $($resultCtoP.session_token)" }
 

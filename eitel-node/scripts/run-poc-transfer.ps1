@@ -97,7 +97,7 @@ function Assert-DockerAvailable {
     }
 }
 
-$edcImageName = "eitel/eclipse-edc-runtime:0.16.0"
+$edcImageName = "mariwogr/eitel:v1"
 $edcDockerfilePath = (Resolve-Path (Join-Path $NodePath "..\deploy")).Path
 
 if ($BuildEDC) {
@@ -137,7 +137,7 @@ try {
         Write-Host "`n[1/12] Starting Coordinator..."
         $startedCoordinator = Start-Process `
             -FilePath "uv" `
-            -ArgumentList @("run", "fastapi", "dev", "src/coordinator/main.py") `
+            -ArgumentList @("run", "uvicorn", "src.coordinator.main:app", "--host", "0.0.0.0", "--port", "8000") `
             -WorkingDirectory $CoordinatorPath `
             -PassThru
     } else {
@@ -166,21 +166,27 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Failed to create shared network." }
         }
 
-        $buildArg = if ($NoBuild) { "" } else { "--build" }
-
-        docker compose -f docker-compose.producer.yml up -d $buildArg
+        if ($NoBuild) {
+            docker compose -f docker-compose.producer.yml up -d
+        } else {
+            docker compose -f docker-compose.producer.yml up -d --build
+        }
         if ($LASTEXITCODE -ne 0) { throw "Failed to start producer compose stack." }
 
-        docker compose -f docker-compose.consumer.yml up -d $buildArg
+        if ($NoBuild) {
+            docker compose -f docker-compose.consumer.yml up -d
+        } else {
+            docker compose -f docker-compose.consumer.yml up -d --build
+        }
         if ($LASTEXITCODE -ne 0) { throw "Failed to start consumer compose stack." }
 
         Write-Host "[4/12] Waiting for node health endpoints..."
         Start-Sleep -Seconds 5
         $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Retries 45 -DelaySeconds 3 -Action {
-            Invoke-RestMethod -Uri "http://localhost:8080/health" -Method Get
+            Invoke-RestMethod -Uri "http://localhost:8090/health" -Method Get
         }
         $healthC = Invoke-WithRetry -Description "Consumer health endpoint" -Retries 45 -DelaySeconds 3 -Action {
-            Invoke-RestMethod -Uri "http://localhost:8081/health" -Method Get
+            Invoke-RestMethod -Uri "http://localhost:8091/health" -Method Get
         }
 
         $nodePDID = $healthP.node_did
@@ -255,7 +261,7 @@ try {
         Write-Host "Asset registered with ID: $($assetRegistration.id)"
 
         Write-Host "[9/12] Executing consumer-to-producer handshake..."
-        $resultCtoP = Invoke-JsonPost -Url "http://localhost:8080/handshake/initiate" -Body @{
+        $resultCtoP = Invoke-JsonPost -Url "http://localhost:8090/handshake/initiate" -Body @{
             did       = $nodeCDID
             eitel_vc  = $vcC
             gaia_x_vp = $null
@@ -283,7 +289,7 @@ try {
 
         try {
             $negotiationRequest = Invoke-JsonPost `
-                -Url "http://localhost:8081/transfer/negotiate" `
+                -Url "http://localhost:8091/transfer/negotiate" `
                 -Headers @{ Authorization = "Bearer $tokenCtoP" } `
                 -Body @{
                     peer_dsp_endpoint = $peerDspEndpoint
