@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
 
   edc-control:
-    image: mariwogr/eitel:v1
+    image: eitel-local:v2
     container_name: eitel-node-edc-producer
     ports:
       - "11000:11000"

@@ -83,7 +83,7 @@ class EDCClient:
                 "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
                 "@type": "CatalogRequest",
                 "counterPartyAddress": counterparty_dsp_url,
-                "protocol": "dataspace-protocol-http"
+                "protocol": "dataspace-protocol-http:2025-1"
             }
 
             if counterparty_did:
@@ -180,7 +180,7 @@ class EDCClient:
                 "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
                 "@type": "ContractRequest",
                 "counterPartyAddress": counterparty_dsp_url,
-                "protocol": "dataspace-protocol-http",
+                "protocol": "dataspace-protocol-http:2025-1",
                 "policy": {
                     "@type": "Offer",
                     "@id": offer_id,
@@ -308,7 +308,7 @@ class EDCClient:
                 "contractId": contract_id,
                 "counterPartyAddress": counterparty_dsp_url,
                 "assetId": asset_id,
-                "protocol": "dataspace-protocol-http",
+                "protocol": "dataspace-protocol-http:2025-1",
                 "dataDestination": {
                     "@type": "HttpData",
                     "baseUrl": destination_url
