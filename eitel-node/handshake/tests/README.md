@@ -11,7 +11,7 @@ Tests for EITEL Node handshake service covering:
 ### Install test dependencies
 
 ```bash
-cd handshake
+cd eitel-node/handshake
 pip install -r requirements.txt
 ```
 
@@ -19,6 +19,12 @@ pip install -r requirements.txt
 
 ```bash
 pytest -v
+```
+
+### Run the handshake integration test first
+
+```bash
+pytest tests/test_integration.py -v
 ```
 
 ### Run specific test file
@@ -53,6 +59,8 @@ pytest --cov=core --cov=routers --cov-report=html
 ## Notes
 
 Tests use temporary directories and fixtures to avoid side effects. Coordinator keys are generated fresh for each test, ensuring isolation.
+
+For manual service startup, the app expects the coordinator trust anchor at `eitel-node/keys/coordinator_pubkey.jwk`. The repo now includes that file as the local public-key placeholder; replace it with the real Coordinator key if you are connecting to a different trust anchor.
 
 The test suite covers both happy paths and error cases:
 - Valid credentials and signatures
