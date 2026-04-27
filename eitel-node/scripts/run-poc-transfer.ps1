@@ -295,7 +295,7 @@ try {
             throw "Asset registration failed at $EDCManagementUrl/v3/assets. $errorMessage"
         }
 
-        Write-Host "Asset registered with ID: $($assetRegistration.id)"
+        Write-Host "Asset registered with ID: $($assetRegistration.'@id')"
 
         Write-Host "[8b/12] Registering policy definition..."
         $policyPayload = @{
