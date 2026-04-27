@@ -262,6 +262,9 @@ async def negotiate_transfer(
                 status_code=400, detail="Peer catalogue is empty or no assets available"
             )
 
+        # Get the provider's participant ID from the catalogue (fallback to peer_did if not available)
+        provider_participant_id = catalogue.provider_id or peer_did
+
         # Step 2: Resolve file_path to asset_id (simple 1:1 mapping for PoC)
         # For production, this should be a proper lookup table
         asset_id = file_path
@@ -278,12 +281,13 @@ async def negotiate_transfer(
             )
 
         # Step 3: Initiate negotiation
-        offer_id = matching_asset.get("id", asset_id)
+        # Use the ODRL offer ID from the DCAT response, fallback to asset ID
+        offer_id = matching_asset.get("offer_id") or matching_asset.get("id", asset_id)
         negotiation = await edc_client.initiate_negotiation(
             counterparty_dsp_url=req.peer_dsp_endpoint,
             offer_id=offer_id,
             asset_id=asset_id,
-            counterparty_did=peer_did
+            counterparty_did=provider_participant_id
         )
 
         if negotiation.error:

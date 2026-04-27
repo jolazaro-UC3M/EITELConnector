@@ -51,6 +51,7 @@ services:
       - EDC_MANAGEMENT_CONTEXT_ENABLED=true
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE=default
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_URL=http://edc-producer-control:11002
+      - EDC_PROTOCOL_DSP_HTTP_ENABLED=true
     networks:
       eitel-producer:
       eitel-shared:

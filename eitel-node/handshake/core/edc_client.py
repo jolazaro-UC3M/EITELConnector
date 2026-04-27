@@ -16,6 +16,7 @@ class EDCCatalogueResponse(NamedTuple):
     """Response from EDC catalogue query."""
 
     assets: list[dict]
+    provider_id: str = ""
     error: Optional[str] = None
 
 
@@ -92,18 +93,31 @@ class EDCClient:
 
             if response.status_code != 200:
                 error = f"EDC catalogue query failed: {response.status_code} - {response.text}"
-                return EDCCatalogueResponse(assets=[], error=error)
+                return EDCCatalogueResponse(assets=[], provider_id="", error=error)
 
             data = response.json()
-            assets = data.get("data", {}).get("asset", [])
-            if not isinstance(assets, list):
-                assets = [assets] if assets else []
+            provider_id = data.get("@id", "")
 
-            return EDCCatalogueResponse(assets=assets, error=None)
+            # EDC v0.2.x returns DCAT JSON-LD with "dcat:dataset" key
+            datasets = data.get("dcat:dataset") or []
+            if isinstance(datasets, dict):
+                datasets = [datasets]
+
+            assets = []
+            for ds in datasets:
+                policy = ds.get("odrl:hasPolicy") or {}
+                if isinstance(policy, list):
+                    policy = policy[0] if policy else {}
+                assets.append({
+                    "id": ds.get("@id", ""),
+                    "offer_id": policy.get("@id", ds.get("@id", "")),
+                })
+
+            return EDCCatalogueResponse(assets=assets, provider_id=provider_id, error=None)
 
         except Exception as e:
             error = f"EDC catalogue query error: {str(e)}"
-            return EDCCatalogueResponse(assets=[], error=error)
+            return EDCCatalogueResponse(assets=[], provider_id="", error=error)
 
     async def query_negotiations(self, counterparty_did: str) -> list[dict]:
         """

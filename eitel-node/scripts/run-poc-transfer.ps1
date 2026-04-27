@@ -244,6 +244,29 @@ try {
         Write-Host "  Giving EDC 5 seconds to fully initialize..."
         Start-Sleep -Seconds 5
 
+        Write-Host "[7b/12] Registering data plane with producer EDC..."
+        $dataplanePayload = @{
+            "@context"             = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
+            "@type"                = "DataPlaneInstance"
+            "id"                   = "producer-dataplane"
+            "url"                  = "http://edc-producer-control:11002/api/control/transfer"
+            "allowedSourceTypes"   = @("HttpData")
+            "allowedDestTypes"     = @("HttpData")
+            "allowedTransferTypes" = @("HttpData-PUSH", "HttpData-PULL")
+        }
+        try {
+            Invoke-JsonPost -Url "$EDCManagementUrl/v3/dataplanes" `
+                -Body $dataplanePayload -Headers @{ "x-api-key" = $EDCApiKey } | Out-Null
+            Write-Host "  Data plane registered."
+        } catch {
+            $msg = Get-HttpErrorMessage -ErrorRecord $_
+            if ($msg -notmatch "already exists|409") {
+                Write-Warning "Data plane registration returned: $msg (continuing)"
+            } else {
+                Write-Host "  Data plane already registered."
+            }
+        }
+
         Write-Host "[8/12] Pre-registering asset in producer EDC..."
         $assetId = $datasetName
         $assetPayload = @{
@@ -273,6 +296,51 @@ try {
         }
 
         Write-Host "Asset registered with ID: $($assetRegistration.id)"
+
+        Write-Host "[8b/12] Registering policy definition..."
+        $policyPayload = @{
+            "@context" = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
+            "@id"      = "default-policy"
+            "policy"   = @{
+                "@type"      = "Set"
+                "permission" = @(@{ "action" = "use" })
+                "prohibition" = @()
+                "obligation"  = @()
+            }
+        }
+        try {
+            Invoke-JsonPost -Url "$EDCManagementUrl/v3/policydefinitions" `
+                -Body $policyPayload -Headers @{ "x-api-key" = $EDCApiKey } | Out-Null
+            Write-Host "  Policy definition registered."
+        } catch {
+            $msg = Get-HttpErrorMessage -ErrorRecord $_
+            if ($msg -notmatch "already exists|409") {
+                throw "Policy registration failed: $msg"
+            } else {
+                Write-Host "  Policy definition already exists."
+            }
+        }
+
+        Write-Host "[8c/12] Registering contract definition..."
+        $contractPayload = @{
+            "@context"        = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
+            "@id"             = "default-contract"
+            "accessPolicyId"  = "default-policy"
+            "contractPolicyId"= "default-policy"
+            "assetsSelector"  = @()
+        }
+        try {
+            Invoke-JsonPost -Url "$EDCManagementUrl/v3/contractdefinitions" `
+                -Body $contractPayload -Headers @{ "x-api-key" = $EDCApiKey } | Out-Null
+            Write-Host "  Contract definition registered."
+        } catch {
+            $msg = Get-HttpErrorMessage -ErrorRecord $_
+            if ($msg -notmatch "already exists|409") {
+                throw "Contract definition failed: $msg"
+            } else {
+                Write-Host "  Contract definition already exists."
+            }
+        }
 
         Write-Host "[9/12] Executing consumer-to-producer handshake..."
         $resultCtoP = Invoke-JsonPost -Url "http://localhost:8090/handshake/initiate" -Body @{
