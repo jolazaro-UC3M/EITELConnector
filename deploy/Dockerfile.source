@@ -1,0 +1,42 @@
+# Multi-stage build for EDC from Eclipse Dataspace Connector source
+# This builds EDC v0.16.0 with DSP protocol support and EITEL configuration
+
+# Stage 1: Build EDC from source
+FROM eclipse-temurin:17-jdk as builder
+
+WORKDIR /edc-build
+
+# Clone Eclipse EDC repository (v0.16.0 tag)
+RUN apt-get update && apt-get install -y git && \
+    git clone --branch v0.16.0 --depth 1 \
+    https://github.com/eclipse-edc/Connector.git .
+
+# Build EDC runtime with DSP and required extensions
+RUN ./gradlew --build-cache -x test \
+    :launchers:generic:build
+
+# Stage 2: Runtime with EITEL configuration
+FROM eclipse-temurin:17-jre-alpine AS runtime
+
+WORKDIR /opt/edc
+
+# Copy built EDC runtime from builder
+COPY --from=builder /edc-build/launchers/generic/build/distributions/connector-*.zip ./
+RUN unzip -q connector-*.zip && rm connector-*.zip && \
+    mv connector-*/* . && rmdir connector-*
+
+# Add EITEL-specific DSP configuration
+RUN echo "" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "# EITEL DSP Protocol Configuration" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "edc.web.http.protocol.path=/api/v1/dsp" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "edc.protocol.dsp.http.enabled=true" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "edc.dsp.protocol.enabled=true" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "edc.service.http.client.cache.size=0" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "org.eclipse.edc.iam.did.parser.embedded.key=false" >> /opt/edc/dataspaceconnector-configuration.properties && \
+    echo "edc.web.rest.cors.enabled=true" >> /opt/edc/dataspaceconnector-configuration.properties
+
+# Expose standard EDC ports
+EXPOSE 11000 11001 11002 11003
+
+# Entry point
+ENTRYPOINT ["/opt/edc/bin/edc"]
