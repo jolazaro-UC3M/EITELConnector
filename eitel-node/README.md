@@ -18,7 +18,7 @@ El servicio de handshake será accesible en `http://localhost:8080` • Document
 ### Desarrollo local (Python)
 
 ```bash
-cd eitel-node/handshake
+cd eitel-node
 uv venv && source .venv/bin/activate  # Unix/macOS
 uv venv && .venv\Scripts\activate     # Windows
 uv sync
@@ -44,7 +44,7 @@ API disponible en `http://localhost:8080` • Documentación en `http://localhos
 Las variables de entorno (prefijo `EITEL_NODE_`) se cargan desde `.env`:
 
 ```bash
-# En eitel-node/handshake/.env
+# En eitel-node/.env
 EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
 EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-control:11002/management
 EITEL_NODE_NODE_IDENTITY_DIR=/identity
@@ -54,7 +54,7 @@ EITEL_NODE_SESSION_TOKEN_SECRET=cambiar-a-secreto-fuerte-en-produccion
 
 Ver [`.env.example`](.env.example) para opciones completas.
 
-**Clave pública del Coordinador:** Colocar archivo JWK en `eitel-node/keys/coordinator_pubkey.jwk` (obtenido de EITELCoordinator)
+**Clave pública del Coordinador:** el servicio carga `eitel-node/keys/coordinator_pubkey.jwk` al arrancar. Para ejecutar el servicio localmente, usa el archivo incluido en el repositorio o reemplázalo por la clave pública real de EITELCoordinator.
 
 ## Endpoints de la API
 
@@ -141,8 +141,10 @@ uv run pytest tests/ --cov=core   # Con cobertura
 ```
 
 Tests incluyen:
-- **Unitarios (36):** Generación de identidad, validación de VC, tokens JWT, verificación VP
-- **Integración (9):** Flujo completo de handshake, endpoints HTTP, registración de peers
+- **Unitarios:** Generación de identidad, validación de VC, tokens JWT, verificación VP
+- **Integración:** Flujo completo de handshake, endpoints HTTP, registración de peers
+
+Si solo quieres validar el handshake, ejecuta primero `uv run pytest tests/test_integration.py -v` dentro de `eitel-node/handshake`.
 
 ## Estructura del proyecto
 
