@@ -36,7 +36,7 @@ class Config(BaseSettings):
     )
 
     edc_dsp_endpoint: str = Field(
-        default="http://localhost:11003/api/v1/dsp",
+        default="http://localhost:11003/api/protocol/2025-1",
         description="EDC DSP endpoint URL (returned to peer in handshake response)",
     )
 
