@@ -295,14 +295,16 @@ async def negotiate_transfer(
             )
 
         # Step 3: Initiate negotiation
-        # Use the ODRL offer ID from the DCAT response, fallback to asset ID
+        # Use the ODRL offer ID and full policy from the DCAT response
         asset_id = matching_asset.get("id")
         offer_id = matching_asset.get("offer_id") or asset_id
+        policy = matching_asset.get("policy", {})
         negotiation = await edc_client.initiate_negotiation(
             counterparty_dsp_url=req.peer_dsp_endpoint,
             offer_id=offer_id,
             asset_id=asset_id,
-            counterparty_did=provider_participant_id
+            counterparty_did=provider_participant_id,
+            policy=policy
         )
 
         if negotiation.error:
