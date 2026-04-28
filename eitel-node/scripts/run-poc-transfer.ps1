@@ -7,6 +7,7 @@ param(
     [switch]$BuildEDC,
     [switch]$TeardownOnSuccess,
     [string]$EDCManagementUrl = "http://localhost:11002/api/management",
+    [string]$ConsumerEDCManagementUrl = "http://localhost:11012/api/management",
     [string]$EDCApiKey = "poc-api-key"
 )
 
@@ -226,14 +227,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Failed to seed dataset in producer Copyparty." }
 
         Write-Host "[7/12] Waiting for producer EDC management API..."
-        # Use cross-platform HTTP check (works on Windows, Linux, macOS with PowerShell Core)
+        # Use QuerySpec request to check EDC readiness (OPTIONS may not be supported)
         Invoke-WithRetry -Description "EDC management API availability" -Retries 90 -DelaySeconds 3 -Action {
             try {
-                $response = Invoke-WebRequest -Uri "http://localhost:11002/api/management/v3/assets" `
-                    -Method Options `
+                Invoke-RestMethod -Uri "$EDCManagementUrl/v3/assets/request" `
+                    -Method Post `
                     -Headers @{ "x-api-key" = $EDCApiKey } `
+                    -ContentType "application/json" `
+                    -Body '{"@context":{"@vocab":"https://w3id.org/edc/v0.0.1/ns/"},"@type":"QuerySpec","limit":1}' `
                     -TimeoutSec 5 `
-                    -ErrorAction Stop
+                    -ErrorAction Stop | Out-Null
             } catch {
                 # Connection refused or timeout - EDC not ready yet
                 throw "EDC management API not responding: $($_.Exception.Message)"
@@ -248,7 +251,7 @@ try {
         $dataplanePayload = @{
             "@context"             = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
             "@type"                = "DataPlaneInstance"
-            "id"                   = "producer-dataplane"
+            "@id"                  = "producer-dataplane"
             "url"                  = "http://edc-producer-control:11002/api/control/transfer"
             "allowedSourceTypes"   = @("HttpData")
             "allowedDestTypes"     = @("HttpData")
@@ -273,7 +276,7 @@ try {
             "@context" = @{
                 "@vocab" = "https://w3id.org/edc/v0.0.1/ns/"
             }
-            id = $assetId
+            "@id" = $assetId
             properties = @{
                 "https://w3id.org/edc/v0.0.1/ns/name" = "Test Dataset"
             }
@@ -305,7 +308,7 @@ try {
             }
             "@id"      = "default-policy"
             "policy"   = @{
-                "@type"      = "odrl:Set"
+                "@type"      = "http://www.w3.org/ns/odrl/2/Set"
                 "permission" = @(@{ "action" = "use" })
                 "prohibition" = @()
                 "obligation"  = @()
@@ -330,7 +333,12 @@ try {
             "@id"             = "default-contract"
             "accessPolicyId"  = "default-policy"
             "contractPolicyId"= "default-policy"
-            "assetsSelector"  = @()
+            "assetsSelector"  = @(@(@{
+                "@type"      = "Criterion"
+                "operandLeft" = "https://w3id.org/edc/v0.0.1/ns/id"
+                "operator"   = "="
+                "operandRight" = $assetId
+            }))
         }
         try {
             Invoke-JsonPost -Url "$EDCManagementUrl/v3/contractdefinitions" `
@@ -410,7 +418,7 @@ try {
 
             try {
                 $transferStatus = Invoke-RestMethod `
-                    -Uri "$EDCManagementUrl/v3/transferprocesses/$transferId" `
+                    -Uri "$ConsumerEDCManagementUrl/v3/transferprocesses/$transferId" `
                     -Method Get `
                     -Headers @{ "x-api-key" = $EDCApiKey } `
                     -TimeoutSec 10
