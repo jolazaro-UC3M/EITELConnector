@@ -25,16 +25,24 @@ function Invoke-WithRetry {
         [scriptblock]$Action,
         [int]$Retries = 30,
         [int]$DelaySeconds = 2,
-        [string]$Description = "operation"
+        [string]$Description = "operation",
+        [int]$TimeoutSeconds = 300
     )
 
+    $startTime = Get-Date
+    $timeoutTime = $startTime.AddSeconds($TimeoutSeconds)
+
     for ($i = 1; $i -le $Retries; $i++) {
+        if ((Get-Date) -gt $timeoutTime) {
+            throw "Failed ${Description}: timeout after $TimeoutSeconds seconds"
+        }
         try {
             return & $Action
         } catch {
             if ($i -eq $Retries) {
-                throw "Failed $Description after $Retries attempts. Last error: $($_.Exception.Message)"
+                throw "Failed ${Description} after $Retries attempts. Last error: $($_.Exception.Message)"
             }
+            Write-Host "  Attempt $i failed, retrying in $DelaySeconds seconds..."
             Start-Sleep -Seconds $DelaySeconds
         }
     }
@@ -44,7 +52,8 @@ function Invoke-JsonPost {
     param(
         [string]$Url,
         [hashtable]$Body,
-        [hashtable]$Headers = @{}
+        [hashtable]$Headers = @{},
+        [int]$TimeoutSec = 30
     )
 
     return Invoke-RestMethod `
@@ -52,7 +61,8 @@ function Invoke-JsonPost {
         -Method Post `
         -ContentType "application/json" `
         -Headers $Headers `
-        -Body ($Body | ConvertTo-Json -Depth 20)
+        -Body ($Body | ConvertTo-Json -Depth 20) `
+        -TimeoutSec $TimeoutSec
 }
 
 function Get-HttpErrorMessage {
@@ -97,7 +107,7 @@ function Assert-DockerAvailable {
     }
 }
 
-$edcImageName = "eitel/eclipse-edc-runtime:0.16.0"
+$edcImageName = "mariwogr/eitel:v1"
 $edcDockerfilePath = (Resolve-Path (Join-Path $NodePath "..\deploy")).Path
 
 if ($BuildEDC) {
@@ -137,7 +147,7 @@ try {
         Write-Host "`n[1/12] Starting Coordinator..."
         $startedCoordinator = Start-Process `
             -FilePath "uv" `
-            -ArgumentList @("run", "fastapi", "dev", "src/coordinator/main.py") `
+            -ArgumentList @("run", "uvicorn", "src.coordinator.main:app", "--host", "0.0.0.0", "--port", "8000") `
             -WorkingDirectory $CoordinatorPath `
             -PassThru
     } else {
@@ -166,21 +176,27 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Failed to create shared network." }
         }
 
-        $buildArg = if ($NoBuild) { "" } else { "--build" }
-
-        docker compose -f docker-compose.producer.yml up -d $buildArg
+        if ($NoBuild) {
+            docker compose -f docker-compose.producer.yml up -d
+        } else {
+            docker compose -f docker-compose.producer.yml up -d --build
+        }
         if ($LASTEXITCODE -ne 0) { throw "Failed to start producer compose stack." }
 
-        docker compose -f docker-compose.consumer.yml up -d $buildArg
+        if ($NoBuild) {
+            docker compose -f docker-compose.consumer.yml up -d
+        } else {
+            docker compose -f docker-compose.consumer.yml up -d --build
+        }
         if ($LASTEXITCODE -ne 0) { throw "Failed to start consumer compose stack." }
 
         Write-Host "[4/12] Waiting for node health endpoints..."
         Start-Sleep -Seconds 5
         $healthP = Invoke-WithRetry -Description "Producer health endpoint" -Retries 45 -DelaySeconds 3 -Action {
-            Invoke-RestMethod -Uri "http://localhost:8080/health" -Method Get
+            Invoke-RestMethod -Uri "http://localhost:8090/health" -Method Get
         }
         $healthC = Invoke-WithRetry -Description "Consumer health endpoint" -Retries 45 -DelaySeconds 3 -Action {
-            Invoke-RestMethod -Uri "http://localhost:8081/health" -Method Get
+            Invoke-RestMethod -Uri "http://localhost:8091/health" -Method Get
         }
 
         $nodePDID = $healthP.node_did
@@ -210,19 +226,46 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Failed to seed dataset in producer Copyparty." }
 
         Write-Host "[7/12] Waiting for producer EDC management API..."
-        # Use Test-NetConnection for robust port connectivity check
-        # This avoids HTTP parsing issues and focuses on what matters: is the port open?
-        $port = 11002
-        Invoke-WithRetry -Description "EDC management API port availability" -Retries 90 -DelaySeconds 3 -Action {
-            $result = Test-NetConnection -ComputerName localhost -Port $port -WarningAction SilentlyContinue
-            if (-not $result.TcpTestSucceeded) {
-                throw "EDC management API port $port not responding"
+        # Use cross-platform HTTP check (works on Windows, Linux, macOS with PowerShell Core)
+        Invoke-WithRetry -Description "EDC management API availability" -Retries 90 -DelaySeconds 3 -Action {
+            try {
+                $response = Invoke-WebRequest -Uri "http://localhost:11002/api/management/v3/assets" `
+                    -Method Options `
+                    -Headers @{ "x-api-key" = $EDCApiKey } `
+                    -TimeoutSec 5 `
+                    -ErrorAction Stop
+            } catch {
+                # Connection refused or timeout - EDC not ready yet
+                throw "EDC management API not responding: $($_.Exception.Message)"
             }
         } | Out-Null
 
         # Grace period to allow EDC to fully initialize after port is open
         Write-Host "  Giving EDC 5 seconds to fully initialize..."
         Start-Sleep -Seconds 5
+
+        Write-Host "[7b/12] Registering data plane with producer EDC..."
+        $dataplanePayload = @{
+            "@context"             = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
+            "@type"                = "DataPlaneInstance"
+            "id"                   = "producer-dataplane"
+            "url"                  = "http://edc-producer-control:11002/api/control/transfer"
+            "allowedSourceTypes"   = @("HttpData")
+            "allowedDestTypes"     = @("HttpData")
+            "allowedTransferTypes" = @("HttpData-PUSH", "HttpData-PULL")
+        }
+        try {
+            Invoke-JsonPost -Url "$EDCManagementUrl/v3/dataplanes" `
+                -Body $dataplanePayload -Headers @{ "x-api-key" = $EDCApiKey } | Out-Null
+            Write-Host "  Data plane registered."
+        } catch {
+            $msg = Get-HttpErrorMessage -ErrorRecord $_
+            if ($msg -notmatch "already exists|409") {
+                Write-Warning "Data plane registration returned: $msg (continuing)"
+            } else {
+                Write-Host "  Data plane already registered."
+            }
+        }
 
         Write-Host "[8/12] Pre-registering asset in producer EDC..."
         $assetId = $datasetName
@@ -252,10 +295,58 @@ try {
             throw "Asset registration failed at $EDCManagementUrl/v3/assets. $errorMessage"
         }
 
-        Write-Host "Asset registered with ID: $($assetRegistration.id)"
+        Write-Host "Asset registered with ID: $($assetRegistration.'@id')"
+
+        Write-Host "[8b/12] Registering policy definition..."
+        $policyPayload = @{
+            "@context" = @{
+                "@vocab" = "https://w3id.org/edc/v0.0.1/ns/"
+                "odrl" = "http://www.w3.org/ns/odrl/2/"
+            }
+            "@id"      = "default-policy"
+            "policy"   = @{
+                "@type"      = "odrl:Set"
+                "permission" = @(@{ "action" = "use" })
+                "prohibition" = @()
+                "obligation"  = @()
+            }
+        }
+        try {
+            Invoke-JsonPost -Url "$EDCManagementUrl/v3/policydefinitions" `
+                -Body $policyPayload -Headers @{ "x-api-key" = $EDCApiKey } | Out-Null
+            Write-Host "  Policy definition registered."
+        } catch {
+            $msg = Get-HttpErrorMessage -ErrorRecord $_
+            if ($msg -notmatch "already exists|409") {
+                throw "Policy registration failed: $msg"
+            } else {
+                Write-Host "  Policy definition already exists."
+            }
+        }
+
+        Write-Host "[8c/12] Registering contract definition..."
+        $contractPayload = @{
+            "@context"        = @{ "@vocab" = "https://w3id.org/edc/v0.0.1/ns/" }
+            "@id"             = "default-contract"
+            "accessPolicyId"  = "default-policy"
+            "contractPolicyId"= "default-policy"
+            "assetsSelector"  = @()
+        }
+        try {
+            Invoke-JsonPost -Url "$EDCManagementUrl/v3/contractdefinitions" `
+                -Body $contractPayload -Headers @{ "x-api-key" = $EDCApiKey } | Out-Null
+            Write-Host "  Contract definition registered."
+        } catch {
+            $msg = Get-HttpErrorMessage -ErrorRecord $_
+            if ($msg -notmatch "already exists|409") {
+                throw "Contract definition failed: $msg"
+            } else {
+                Write-Host "  Contract definition already exists."
+            }
+        }
 
         Write-Host "[9/12] Executing consumer-to-producer handshake..."
-        $resultCtoP = Invoke-JsonPost -Url "http://localhost:8080/handshake/initiate" -Body @{
+        $resultCtoP = Invoke-JsonPost -Url "http://localhost:8090/handshake/initiate" -Body @{
             did       = $nodeCDID
             eitel_vc  = $vcC
             gaia_x_vp = $null
@@ -283,7 +374,7 @@ try {
 
         try {
             $negotiationRequest = Invoke-JsonPost `
-                -Url "http://localhost:8081/transfer/negotiate" `
+                -Url "http://localhost:8091/transfer/negotiate" `
                 -Headers @{ Authorization = "Bearer $tokenCtoP" } `
                 -Body @{
                     peer_dsp_endpoint = $peerDspEndpoint
@@ -307,15 +398,22 @@ try {
         $transferComplete = $false
         $pollRetries = 120
         $pollDelay = 2
+        $pollStartTime = Get-Date
+        $pollTimeoutSeconds = 300
 
         for ($i = 0; $i -lt $pollRetries; $i++) {
+            if ((Get-Date) - $pollStartTime -gt (New-TimeSpan -Seconds $pollTimeoutSeconds)) {
+                throw "Transfer polling timeout after $pollTimeoutSeconds seconds"
+            }
+
             Write-Host "  Poll attempt $($i + 1)/$pollRetries..."
 
             try {
                 $transferStatus = Invoke-RestMethod `
                     -Uri "$EDCManagementUrl/v3/transferprocesses/$transferId" `
                     -Method Get `
-                    -Headers @{ "x-api-key" = $EDCApiKey }
+                    -Headers @{ "x-api-key" = $EDCApiKey } `
+                    -TimeoutSec 10
             } catch {
                 $errorMessage = Get-HttpErrorMessage -ErrorRecord $_
                 throw "Transfer polling failed for transfer ID '$transferId'. $errorMessage"

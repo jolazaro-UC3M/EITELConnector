@@ -16,6 +16,7 @@ class EDCCatalogueResponse(NamedTuple):
     """Response from EDC catalogue query."""
 
     assets: list[dict]
+    provider_id: str = ""
     error: Optional[str] = None
 
 
@@ -49,7 +50,7 @@ class EDCClient:
         """
         self.management_url = management_url.rstrip("/")
         self.api_key = api_key
-        self.client = httpx.AsyncClient(timeout=10.0)
+        self.client = httpx.AsyncClient(timeout=30.0)
 
     async def close(self) -> None:
         """Close the HTTP client."""
@@ -82,7 +83,7 @@ class EDCClient:
                 "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
                 "@type": "CatalogRequest",
                 "counterPartyAddress": counterparty_dsp_url,
-                "protocol": "dataspace-protocol-http"
+                "protocol": "dataspace-protocol-http:2025-1"
             }
 
             if counterparty_did:
@@ -92,18 +93,31 @@ class EDCClient:
 
             if response.status_code != 200:
                 error = f"EDC catalogue query failed: {response.status_code} - {response.text}"
-                return EDCCatalogueResponse(assets=[], error=error)
+                return EDCCatalogueResponse(assets=[], provider_id="", error=error)
 
             data = response.json()
-            assets = data.get("data", {}).get("asset", [])
-            if not isinstance(assets, list):
-                assets = [assets] if assets else []
+            provider_id = data.get("@id", "")
 
-            return EDCCatalogueResponse(assets=assets, error=None)
+            # EDC v0.2.x returns DCAT JSON-LD with "dcat:dataset" key
+            datasets = data.get("dcat:dataset") or []
+            if isinstance(datasets, dict):
+                datasets = [datasets]
+
+            assets = []
+            for ds in datasets:
+                policy = ds.get("odrl:hasPolicy") or {}
+                if isinstance(policy, list):
+                    policy = policy[0] if policy else {}
+                assets.append({
+                    "id": ds.get("@id", ""),
+                    "offer_id": policy.get("@id", ds.get("@id", "")),
+                })
+
+            return EDCCatalogueResponse(assets=assets, provider_id=provider_id, error=None)
 
         except Exception as e:
             error = f"EDC catalogue query error: {str(e)}"
-            return EDCCatalogueResponse(assets=[], error=error)
+            return EDCCatalogueResponse(assets=[], provider_id="", error=error)
 
     async def query_negotiations(self, counterparty_did: str) -> list[dict]:
         """
@@ -166,7 +180,7 @@ class EDCClient:
                 "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
                 "@type": "ContractRequest",
                 "counterPartyAddress": counterparty_dsp_url,
-                "protocol": "dataspace-protocol-http",
+                "protocol": "dataspace-protocol-http:2025-1",
                 "policy": {
                     "@type": "Offer",
                     "@id": offer_id,
@@ -294,7 +308,7 @@ class EDCClient:
                 "contractId": contract_id,
                 "counterPartyAddress": counterparty_dsp_url,
                 "assetId": asset_id,
-                "protocol": "dataspace-protocol-http",
+                "protocol": "dataspace-protocol-http:2025-1",
                 "dataDestination": {
                     "@type": "HttpData",
                     "baseUrl": destination_url
