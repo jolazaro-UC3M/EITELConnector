@@ -57,6 +57,7 @@ services:
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_DESTTYPES=HttpData
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_PUBLICAPIURL=http://edc-consumer-control:11012/api/public
       - EDC_PROTOCOL_DSP_HTTP_ENABLED=true
+      - EDC_DSP_PROTOCOL_ENABLED=true
     networks:
       eitel-consumer:
       eitel-shared:
