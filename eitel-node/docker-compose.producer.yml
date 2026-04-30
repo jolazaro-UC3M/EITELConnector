@@ -51,7 +51,10 @@ services:
       - EDC_API_AUTH_KEY=${EDC_API_AUTH_KEY:-poc-api-key}
       - EDC_MANAGEMENT_CONTEXT_ENABLED=true
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE=default
-      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_URL=http://edc-producer-control:11002
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_URL=http://edc-producer-control:11002/api/dataplane  # add /api/dataplane
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_SOURCETYPES=HttpData                                  # missing
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_DESTTYPES=HttpData                                    # missing
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_PUBLICAPIURL=http://edc-producer-control:11002/api/public  # missing
       - EDC_PROTOCOL_DSP_HTTP_ENABLED=true
     networks:
       eitel-producer:
