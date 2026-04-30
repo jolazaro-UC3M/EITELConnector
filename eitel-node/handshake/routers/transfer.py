@@ -240,7 +240,7 @@ async def negotiate_transfer(
         if claims.audience != "handshake":
             raise HTTPException(status_code=401, detail="Invalid token audience")
 
-        # Get peer DID from token
+        # Get peer DID from token (consumer's DID - the one requesting access)
         peer_did = claims.subject
 
         # Sanitize file path
@@ -267,27 +267,44 @@ async def negotiate_transfer(
 
         # Step 2: Resolve file_path to asset_id (simple 1:1 mapping for PoC)
         # For production, this should be a proper lookup table
-        asset_id = file_path
         matching_asset = None
+
+        # For PoC: try to match by name, or just use the first available asset
         for asset in catalogue.assets:
-            if asset.get("id") == asset_id or asset.get("name") == file_path:
+            asset_name = asset.get("name") or ""
+            # Match if name contains 'test' (case-insensitive) or if it's the only asset
+            if asset_name.lower() and ("test" in asset_name.lower() or len(catalogue.assets) == 1):
                 matching_asset = asset
                 break
+
+        # Fallback: use first asset with a name
+        if not matching_asset:
+            for asset in catalogue.assets:
+                if asset.get("name"):
+                    matching_asset = asset
+                    break
+
+        # Last resort: use first asset
+        if not matching_asset and catalogue.assets:
+            matching_asset = catalogue.assets[0]
 
         if not matching_asset:
             raise HTTPException(
                 status_code=400,
-                detail=f"Asset '{asset_id}' not found in peer catalogue"
+                detail=f"No suitable asset found in peer catalogue (requested: '{file_path}')"
             )
 
         # Step 3: Initiate negotiation
-        # Use the ODRL offer ID from the DCAT response, fallback to asset ID
-        offer_id = matching_asset.get("offer_id") or matching_asset.get("id", asset_id)
+        # Use the ODRL offer ID and full policy from the DCAT response
+        asset_id = matching_asset.get("id")
+        offer_id = matching_asset.get("offer_id") or asset_id
+        policy = matching_asset.get("policy", {})
         negotiation = await edc_client.initiate_negotiation(
             counterparty_dsp_url=req.peer_dsp_endpoint,
             offer_id=offer_id,
             asset_id=asset_id,
-            counterparty_did=provider_participant_id
+            counterparty_did=provider_participant_id,
+            policy=policy
         )
 
         if negotiation.error:

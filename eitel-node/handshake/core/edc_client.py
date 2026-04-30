@@ -98,19 +98,23 @@ class EDCClient:
             data = response.json()
             provider_id = data.get("@id", "")
 
-            # EDC v0.2.x returns DCAT JSON-LD with "dcat:dataset" key
-            datasets = data.get("dcat:dataset") or []
+            # EDC v0.17.0 returns JSON-LD with "dataset" key and "hasPolicy" arrays
+            # Fallback to DCAT vocabulary prefixes for compatibility
+            datasets = data.get("dataset") or data.get("dcat:dataset") or []
             if isinstance(datasets, dict):
                 datasets = [datasets]
 
             assets = []
             for ds in datasets:
-                policy = ds.get("odrl:hasPolicy") or {}
-                if isinstance(policy, list):
-                    policy = policy[0] if policy else {}
+                policy_list = ds.get("hasPolicy") or ds.get("odrl:hasPolicy") or []
+                if isinstance(policy_list, dict):
+                    policy_list = [policy_list]
+                policy = policy_list[0] if policy_list else {}
                 assets.append({
                     "id": ds.get("@id", ""),
+                    "name": ds.get("edc:name") or ds.get("name") or ds.get("dcat:name"),
                     "offer_id": policy.get("@id", ds.get("@id", "")),
+                    "policy": policy,
                 })
 
             return EDCCatalogueResponse(assets=assets, provider_id=provider_id, error=None)
@@ -161,7 +165,7 @@ class EDCClient:
         """
         Initiate DSP contract negotiation for an asset.
 
-        Calls: POST /v3/contractnegotiations/initiate
+        Calls: POST /v3/contractnegotiations
 
         Args:
             counterparty_dsp_url: Peer's DSP endpoint
@@ -174,20 +178,29 @@ class EDCClient:
             EDCNegotiationResponse with negotiation ID and state
         """
         try:
-            url = f"{self.management_url}/v3/contractnegotiations/initiate"
+            url = f"{self.management_url}/v3/contractnegotiations"
+
+            # Start with the policy from catalogue (if provided), otherwise build minimal policy
+            policy_obj = dict(policy) if policy else {}
+            # Ensure required fields are present
+            if "@type" not in policy_obj:
+                policy_obj["@type"] = "odrl:Offer"
+            if "@id" not in policy_obj:
+                policy_obj["@id"] = offer_id
+            if "odrl:assigner" not in policy_obj:
+                policy_obj["odrl:assigner"] = {"@id": counterparty_did}
+            if "odrl:target" not in policy_obj:
+                policy_obj["odrl:target"] = {"@id": asset_id}
 
             payload = {
-                "@context": {"@vocab": "https://w3id.org/edc/v0.0.1/ns/"},
+                "@context": {
+                    "@vocab": "https://w3id.org/edc/v0.0.1/ns/",
+                    "odrl": "http://www.w3.org/ns/odrl/2/"
+                },
                 "@type": "ContractRequest",
                 "counterPartyAddress": counterparty_dsp_url,
                 "protocol": "dataspace-protocol-http:2025-1",
-                "policy": {
-                    "@type": "Offer",
-                    "@id": offer_id,
-                    "assigner": counterparty_did,
-                    "target": asset_id,
-                    **(policy or {})
-                }
+                "policy": policy_obj
             }
 
             response = await self.client.post(url, json=payload, headers=self._headers())
