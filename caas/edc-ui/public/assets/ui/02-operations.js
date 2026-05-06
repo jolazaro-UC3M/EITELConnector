@@ -1993,35 +1993,23 @@ function summarizePolicyTerms(policyObj) {
       return [...new Set(configured.map((value) => String(value || '').trim()).filter(Boolean))];
     }
 
-    function buildStarStatusUrl(participantId = '') {
-      const base = String(starTrustConfig.coordinatorStatusUrl || '').trim();
-      if (!base) return '';
+    async function fetchCoordinatorHealthAndKey() {
+      const coordinatorUrl = String(starTrustConfig.coordinatorUrl || '').trim();
+      if (!coordinatorUrl) throw new Error('Falta la URL del coordinador.');
 
-      try {
-        const url = new URL(base, window.location.origin);
-        if (participantId) url.searchParams.set('participant', participantId);
-        else url.searchParams.delete('participant');
-        return url.toString();
-      } catch {
-        const trimmed = base.replace(/[?&]participant=[^&]*/gi, '').replace(/[?&]$/, '');
-        if (!participantId) return trimmed;
-        const separator = trimmed.includes('?') ? '&' : '?';
-        return `${trimmed}${separator}participant=${encodeURIComponent(participantId)}`;
+      const [healthRes, keyRes] = await Promise.allSettled([
+        fetch(`${coordinatorUrl}/health`, { headers: { accept: 'application/json' } }),
+        fetch(`${coordinatorUrl}/public-key`, { headers: { accept: 'application/json' } }),
+      ]);
+
+      const healthy = healthRes.status === 'fulfilled' && healthRes.value?.ok;
+      let pubKey = null;
+      if (keyRes.status === 'fulfilled' && keyRes.value?.ok) {
+        const jwks = await keyRes.value.json().catch(() => null);
+        pubKey = jwks?.keys?.[0] ?? null;
       }
-    }
 
-    async function fetchStarStatusSnapshot(participantId = '') {
-      const url = buildStarStatusUrl(participantId);
-      if (!url) throw new Error('Falta la URL pública del coordinador Star.');
-
-      const response = await fetch(url, {
-        headers: { accept: 'application/json' },
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload) {
-        throw new Error(`HTTP ${response.status} al consultar ${url}`);
-      }
-      return { url, payload };
+      return { healthy, pubKey, coordinatorUrl };
     }
 
     function getStarParticipantTone(participant, error = '') {
@@ -2245,73 +2233,55 @@ function summarizePolicyTerms(policyObj) {
     }
 
     async function loadStarTrustSnapshot(force = false) {
-      if (!starTrustConfig.enabled || !starTrustConfig.coordinatorStatusUrl) return;
+      if (!starTrustConfig.enabled) return;
       const now = Date.now();
       if (starTrustRemote.loading) return;
       if (!force && starTrustRemote.snapshot && (now - starTrustRemote.lastLoadedAt) < 30000) return;
 
       starTrustRemote.loading = true;
       try {
-        const participantIds = getStarParticipantCandidates();
+        const { healthy, pubKey, coordinatorUrl } = await fetchCoordinatorHealthAndKey();
+
         const currentParticipantId = canonicalConnectorPrefix(connectorName || cfg?.connectorName || '');
-        const targets = participantIds.length ? participantIds : [currentParticipantId || ''];
-        const results = await Promise.all(targets.map(async (participantId) => {
-          try {
-            const snapshot = await fetchStarStatusSnapshot(participantId);
-            return { participantId, snapshot, error: '' };
-          } catch (error) {
-            return {
-              participantId,
-              snapshot: null,
-              error: error?.message ? String(error.message) : 'No se pudo consultar el estado Star.',
-            };
-          }
-        }));
+        const localParticipant = buildFallbackStarParticipant();
 
-        const participants = {};
-        const participantErrors = {};
-        let currentPayload = null;
-        let firstSuccess = null;
+        const coordinatorSnapshot = {
+          coordinator: {
+            name: starTrustConfig.coordinatorName,
+            url: starTrustConfig.coordinatorUrl,
+            publicKey: pubKey ? { id: pubKey.kid, published: true } : null,
+            healthy,
+          },
+          participant: localParticipant,
+        };
 
-        results.forEach(({ participantId, snapshot, error }) => {
-          const normalizedId = canonicalConnectorPrefix(participantId || snapshot?.payload?.participant?.id || '');
-          if (snapshot?.payload?.participant && normalizedId) {
-            participants[normalizedId] = snapshot.payload.participant;
-            if (!firstSuccess) firstSuccess = snapshot.payload;
-            if (normalizedId === currentParticipantId) currentPayload = snapshot.payload;
-          }
-          if (error && normalizedId) participantErrors[normalizedId] = error;
-        });
-
-        starTrustRemote.participants = participants;
-        starTrustRemote.participantErrors = participantErrors;
-        starTrustRemote.snapshot = currentPayload || firstSuccess;
+        starTrustRemote.participants = { [currentParticipantId]: localParticipant };
+        starTrustRemote.participantErrors = {};
+        starTrustRemote.snapshot = coordinatorSnapshot;
         starTrustRemote.error = '';
         starTrustRemote.lastLoadedAt = Date.now();
 
-        const participantId = clean(starTrustRemote.snapshot?.participant?.id || connectorName || 'participante');
-        const didValue = clean(starTrustRemote.snapshot?.participant?.did || 'pendiente');
-        const vcState = starTrustRemote.snapshot?.participant?.vc?.present ? 'disponible' : 'pendiente';
+        const participantId = clean(localParticipant?.id || currentParticipantId || 'participante');
+        const didValue = clean(localParticipant?.did || 'pendiente');
+        const vcState = localParticipant?.vc?.present ? 'disponible' : 'pendiente';
         const signature = JSON.stringify([
-          starTrustRemote.snapshot?.coordinator?.url || '',
-          ...Object.values(participants).map((participant) => [
-            participant?.id || '',
-            participant?.did || '',
-            participant?.vc?.present || false,
-            participant?.vc?.status || '',
-          ]),
+          coordinatorUrl || '',
+          participantId,
+          didValue,
+          localParticipant?.vc?.present || false,
         ]);
 
         if (force || signature !== starTrustRemote.lastSuccessSignature) {
           starTrustRemote.lastSuccessSignature = signature;
-          pushStarTrustEvent('Coordinador Star consultado', `Estado recibido para ${Object.keys(participants).length || 1} conector(es). Nodo activo ${participantId}: DID ${didValue} y VC ${vcState}.`, starTrustRemote.snapshot?.participant?.vc?.present ? 'ok' : 'warn');
+          const coordinatorStatus = healthy ? 'disponible' : 'no disponible';
+          pushStarTrustEvent('Coordinador consultado', `${coordinatorStatus}. Nodo: ${participantId}, DID ${didValue}, VC ${vcState}.`, localParticipant?.vc?.present ? 'ok' : 'warn');
           return;
         }
       } catch (error) {
-        starTrustRemote.error = error?.message ? String(error.message) : 'No se pudo consultar el coordinador Star.';
+        starTrustRemote.error = error?.message ? String(error.message) : 'No se pudo consultar el coordinador.';
         starTrustRemote.lastLoadedAt = Date.now();
         if (force) {
-          pushStarTrustEvent('Coordinador Star no disponible', starTrustRemote.error, 'warn');
+          pushStarTrustEvent('Coordinador no disponible', starTrustRemote.error, 'warn');
           return;
         }
       } finally {

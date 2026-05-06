@@ -9,7 +9,6 @@ window.EITEL_UI_CONFIG = {
   starMode: "${NEXT_PUBLIC_STAR_MODE}",
   starCoordinatorName: "${NEXT_PUBLIC_STAR_COORDINATOR_NAME}",
   starCoordinatorUrl: "${NEXT_PUBLIC_STAR_COORDINATOR_URL}",
-  starCoordinatorStatusUrl: "${NEXT_PUBLIC_STAR_COORDINATOR_STATUS_URL}",
   starDidMethod: "${NEXT_PUBLIC_STAR_DID_METHOD}",
   starParticipantDid: "${NEXT_PUBLIC_STAR_PARTICIPANT_DID}",
   starVcPresent: "${NEXT_PUBLIC_STAR_VC_PRESENT}",

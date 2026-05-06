@@ -82,7 +82,6 @@ services:
       NEXT_PUBLIC_STAR_MODE: ${STAR_UI_MODE:-true}
       NEXT_PUBLIC_STAR_COORDINATOR_NAME: ${STAR_COORDINATOR_NAME:-UC3M Coordinador EITEL}
       NEXT_PUBLIC_STAR_COORDINATOR_URL: ${STAR_COORDINATOR_URL:-http://localhost:12030}
-      NEXT_PUBLIC_STAR_COORDINATOR_STATUS_URL: ${STAR_COORDINATOR_STATUS_URL:-http://localhost:12030/api/star/status?participant=conectorstar}
       NEXT_PUBLIC_STAR_DID_METHOD: ${STAR_DID_METHOD:-did:key}
       NEXT_PUBLIC_STAR_PARTICIPANT_DID: ${STAR_PARTICIPANT_DID:-did:key:pending-conectorstar}
       NEXT_PUBLIC_STAR_VC_PRESENT: ${STAR_VC_PRESENT:-false}
@@ -101,28 +100,24 @@ services:
     networks:
       - conectorstar-net
 
-  star-coordinator:
-    image: eitel/star-coordinator:latest
+  eitel-coordinator:
+    image: eitel/coordinator:latest
     build:
-      context: ../../caas/star-coordinator
+      context: ../../EITELCoordinator
       dockerfile: Dockerfile
     container_name: conectorstar-coordinator
-    restart: always
+    restart: unless-stopped
     environment:
-      STAR_COORDINATOR_NAME: ${STAR_COORDINATOR_NAME:-UC3M Coordinador EITEL}
-      STAR_COORDINATOR_URL: ${STAR_COORDINATOR_URL:-http://localhost:12030}
-      STAR_PUBLIC_KEY_ID: ${STAR_PUBLIC_KEY_ID:-uc3m-star-demo-key}
-      STAR_PUBLIC_KEY_PEM: ${STAR_PUBLIC_KEY_PEM:-STAR-DEMO-PUBLIC-KEY}
-      STAR_DEFAULT_PARTICIPANT_ID: ${STAR_PARTICIPANT_ID:-conectorstar}
-      STAR_DEFAULT_PARTICIPANT_DID: ${STAR_PARTICIPANT_DID:-did:key:pending-conectorstar}
-      STAR_DEFAULT_VC_PRESENT: ${STAR_VC_PRESENT:-false}
-      STAR_DEFAULT_VC_ISSUER: ${STAR_VC_ISSUER:-UC3M}
-      STAR_DEFAULT_VC_ID: ${STAR_VC_ID:-urn:star:vc:conectorstar}
-      STAR_DEFAULT_VC_STATUS: ${STAR_VC_STATUS:-simulated}
+      COORDINATOR_PRIVATE_KEY_PATH: /keys/coordinator-ed25519-priv.jwk
+      COORDINATOR_PUBLIC_KEY_PATH: /keys/coordinator-ed25519-pub.jwk
+      COORDINATOR_BASE_URL: ${COORDINATOR_BASE_URL:-http://localhost:12030}
+      COORDINATOR_TLS_VERIFY_CLIENT: "false"
+    volumes:
+      - ./keys:/keys:ro
     ports:
-      - "12030:8080"
+      - "12030:8000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10

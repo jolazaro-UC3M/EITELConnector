@@ -1,26 +1,22 @@
 services:
-  star-coordinator:
-    image: eitel/star-coordinator-pair:latest
+  eitel-coordinator:
+    image: eitel/coordinator:latest
     build:
-      context: ../../caas/star-coordinator
+      context: ../../EITELCoordinator
       dockerfile: Dockerfile
     container_name: conectorstar-pair-coordinator
-    restart: always
+    restart: unless-stopped
     environment:
-      STAR_COORDINATOR_NAME: ${STAR_COORDINATOR_NAME}
-      STAR_COORDINATOR_URL: ${STAR_COORDINATOR_URL}
-      STAR_PUBLIC_KEY_ID: ${STAR_PUBLIC_KEY_ID}
-      STAR_PUBLIC_KEY_PEM: ${STAR_PUBLIC_KEY_PEM}
-      STAR_DEFAULT_PARTICIPANT_ID: ${STAR_A_PARTICIPANT_ID}
-      STAR_DEFAULT_PARTICIPANT_DID: ${STAR_A_PARTICIPANT_DID}
-      STAR_DEFAULT_VC_PRESENT: ${STAR_A_VC_PRESENT}
-      STAR_DEFAULT_VC_ISSUER: ${STAR_VC_ISSUER}
-      STAR_DEFAULT_VC_ID: ${STAR_A_VC_ID}
-      STAR_DEFAULT_VC_STATUS: ${STAR_A_VC_STATUS}
+      COORDINATOR_PRIVATE_KEY_PATH: /keys/coordinator-ed25519-priv.jwk
+      COORDINATOR_PUBLIC_KEY_PATH: /keys/coordinator-ed25519-pub.jwk
+      COORDINATOR_BASE_URL: ${COORDINATOR_BASE_URL:-http://localhost:12030}
+      COORDINATOR_TLS_VERIFY_CLIENT: "false"
+    volumes:
+      - ./keys:/keys:ro
     ports:
-      - "12030:8080"
+      - "12030:8000"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -119,7 +115,6 @@ services:
       NEXT_PUBLIC_STAR_MODE: "true"
       NEXT_PUBLIC_STAR_COORDINATOR_NAME: ${STAR_COORDINATOR_NAME}
       NEXT_PUBLIC_STAR_COORDINATOR_URL: ${STAR_COORDINATOR_URL}
-      NEXT_PUBLIC_STAR_COORDINATOR_STATUS_URL: ${STAR_COORDINATOR_STATUS_BASE_URL}?participant=${STAR_A_PARTICIPANT_ID}
       NEXT_PUBLIC_STAR_DID_METHOD: did:key
       NEXT_PUBLIC_STAR_PARTICIPANT_DID: ${STAR_A_PARTICIPANT_DID}
       NEXT_PUBLIC_STAR_VC_PRESENT: ${STAR_A_VC_PRESENT}
@@ -288,7 +283,6 @@ services:
       NEXT_PUBLIC_STAR_MODE: "true"
       NEXT_PUBLIC_STAR_COORDINATOR_NAME: ${STAR_COORDINATOR_NAME}
       NEXT_PUBLIC_STAR_COORDINATOR_URL: ${STAR_COORDINATOR_URL}
-      NEXT_PUBLIC_STAR_COORDINATOR_STATUS_URL: ${STAR_COORDINATOR_STATUS_BASE_URL}?participant=${STAR_B_PARTICIPANT_ID}
       NEXT_PUBLIC_STAR_DID_METHOD: did:key
       NEXT_PUBLIC_STAR_PARTICIPANT_DID: ${STAR_B_PARTICIPANT_DID}
       NEXT_PUBLIC_STAR_VC_PRESENT: ${STAR_B_VC_PRESENT}
