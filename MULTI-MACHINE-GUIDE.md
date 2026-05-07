@@ -283,13 +283,29 @@ Edit `docker-compose.consumer.yml` and replace internal hostnames:
 
 No `eitel-coordinator` service exists in `docker-compose.consumer.yml` — nothing to comment out.
 
-#### 3.5 Start the consumer stack (first boot)
+#### 3.5 (Distributed mode only) Adjust download-sink port binding
+
+The default `docker-compose.consumer.yml` binds the download-sink to `127.0.0.1:8082`, which is localhost-only. For distributed mode where the Producer EDC needs to POST data to this port, you must expose it to the network:
+
+Edit `docker-compose.consumer.yml` and find the `download-sink` service:
+
+```yaml
+download-sink:
+  # Change from:
+  #   - "127.0.0.1:8082:8082"
+  # To:
+      - "8082:8082"  # binds to all interfaces (0.0.0.0)
+```
+
+This allows the Producer machine to reach `http://CONSUMER_IP:8082/ingest`.
+
+#### 3.6 Start the consumer stack (first boot)
 
 ```bash
 docker compose -f docker-compose.consumer.yml up -d --build
 ```
 
-#### 3.6 Get the consumer DID
+#### 3.7 Get the consumer DID
 
 ```bash
 curl http://CONSUMER_IP:8091/health
@@ -594,6 +610,8 @@ curl -X POST $PRODUCER_MGMT/v3/contractdefinitions \
 
 **Step 9d — Request catalog from Consumer EDC**
 
+⚠️ **Important**: Offer IDs are **ephemeral** and regenerated every time the Producer's EDC restarts (e.g., when you `docker compose restart` or `docker compose down && up`). If you restart the Producer's EDC between now and Step 9e, you **must** re-run this step to fetch a fresh offer ID.
+
 ```bash
 CONSUMER_MGMT=http://CONSUMER_IP:11012/api/management
 DSP_ENDPOINT=http://PRODUCER_IP:11003/api/protocol/2025-1
@@ -610,9 +628,11 @@ curl -X POST $CONSUMER_MGMT/v3/catalog/request \
   }'
 ```
 
-Locate the `odrl:hasPolicy/@id` value from the dataset matching `test-dataset.json`. This is `OFFER_ID`.
+Locate the `odrl:hasPolicy/@id` value from the dataset matching `test-dataset.json`. This is `OFFER_ID`. **Do not** close this terminal or move on to Step 9e until you have captured this ID.
 
 **Step 9e — Start contract negotiation**
+
+⚠️ **Important**: Use the `OFFER_ID` from Step 9d **immediately**. If you restarted the Producer EDC since Step 9d, the offer ID is no longer valid — go back to Step 9d and fetch a fresh one. The EDC in-memory store generates new offer IDs on each startup.
 
 ```bash
 curl -X POST $CONSUMER_MGMT/v3/contractnegotiations \
@@ -654,8 +674,10 @@ Note the `@id` of the new agreement → `AGREEMENT_ID`.
 
 **Step 9g — Initiate transfer**
 
+⚠️ **Important for distributed mode**: The `SINK_URL` must use the **Consumer's LAN IP**, not a Docker hostname. The Producer EDC is on a different machine and cannot resolve Docker internal hostnames.
+
 ```bash
-SINK_URL=http://eitel-node-download-sink-consumer:8082/ingest
+SINK_URL=http://CONSUMER_IP:8082/ingest
 TRANSFER_SINK="$SINK_URL?contractId=AGREEMENT_ID&assetId=test-dataset.json"
 
 curl -X POST $CONSUMER_MGMT/v3/transferprocesses \
@@ -694,10 +716,10 @@ Poll every 2-3 seconds until `700` (COMPLETED).
 
 ### Phase 10 — Verify downloaded file
 
-The download-sink service on the Consumer captures incoming data.
+The download-sink service on the Consumer captures incoming data. After adjusting the port binding in Phase 3.5, you can access it from the Consumer machine using localhost:
 
 ```bash
-# On Consumer machine (port is localhost-only by default)
+# On Consumer machine
 curl http://localhost:8082/files
 ```
 
@@ -724,7 +746,7 @@ Expected: `{"dataset":"test","records":[{"id":1}]}`
 | Consumer | 11010 | EDC default HTTP | Inbound | |
 | Consumer | 11012 | EDC management | Inbound (management only) | |
 | Consumer | 11013 | EDC DSP protocol | Inbound from Producer EDC | |
-| Consumer | 8082 | Download sink | Localhost only (bound to 127.0.0.1) | |
+| Consumer | 8082 | Download sink | Inbound from Producer EDC | Adjusted in Phase 3.5 for distributed mode |
 | Producer | 3923 | Copyparty | Localhost only (bound to 127.0.0.1) | |
 | Consumer | 3924 | Copyparty | Localhost only (bound to 127.0.0.1) | |
 
@@ -832,11 +854,11 @@ docker exec eitel-node-handshake-producer cat /keys/coordinator_pubkey.jwk
 - Check that `EDC_DSP_CALLBACK_ADDRESS` uses the LAN IP, not an internal Docker hostname. The producer's EDC must be reachable from the consumer using this address.
 - Verify: `curl http://PRODUCER_IP:11003/api/protocol/.well-known/dspace-version` returns a version string.
 
-### EDC negotiation stuck at AGREEING (Windows / Docker Desktop)
+### EDC negotiation stuck at AGREEING (critical in distributed mode — Docker network subnet conflict)
 
-**Symptom**: the Producer's EDC receives the negotiation and reaches state `AGREEING`, but never advances to `AGREED`. The Consumer stays in `REQUESTED`.
+**Symptom**: the Producer's EDC receives the negotiation and reaches state `AGREEING`, but never advances to `AGREED`. The Consumer stays in `REQUESTED`. The negotiation will time out or hang indefinitely.
 
-**Cause**: a Docker bridge network on the Producer machine has a subnet that overlaps with the physical LAN. The Linux kernel routes packets for the Consumer's IP into the Docker bridge instead of out the real network interface, so the Producer's EDC can never call back to the Consumer.
+**Cause**: a Docker bridge network on the Producer machine has a subnet that overlaps with the physical LAN (e.g., Docker bridge at `172.20.0.0/16` when your LAN is `172.20.10.0/28`). The Linux kernel routes packets for the Consumer's IP into the Docker bridge instead of out the real network interface, so the Producer's EDC cannot reach the Consumer's callback address.
 
 **Diagnose**: from the Producer, test whether the EDC container can reach the Consumer's DSP port:
 
