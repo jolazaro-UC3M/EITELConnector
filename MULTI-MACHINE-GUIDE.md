@@ -299,69 +299,87 @@ curl http://CONSUMER_IP:8091/health
 
 ---
 
-### Phase 4 — Back to Coordinator: issue VCs
+### Phase 4 — Coordinator issues VCs for both nodes
 
-With both DIDs in hand, issue credentials for each node.
+On the **Coordinator machine**, use the credential issuance script to generate VCs for each node.
 
 #### 4.1 Issue VC for Producer
 
-```bash
-curl -X POST http://COORDINATOR_IP:8000/credentials \
-  -H "Content-Type: application/json" \
-  -d '{
-    "participantName": "EITEL Producer",
-    "participantId": "node-producer",
-    "did": "did:key:PRODUCER_DID_HERE",
-    "role": "producer"
-  }'
-```
+You have the Producer's DID from Phase 2.7. On the Coordinator machine:
 
-Save the full JSON response as `credential-producer.json`.
+```bash
+cd EITELCoordinator
+uv run python scripts/issue_eitel_credentials.py \
+  --name "EITEL Producer" \
+  --id "node-producer" \
+  --did "did:key:PRODUCER_DID_HERE" \
+  --role "producer" \
+  --output credential-producer.json
+
+cat credential-producer.json
+```
 
 #### 4.2 Issue VC for Consumer
 
+You have the Consumer's DID from Phase 3.7. On the Coordinator machine:
+
 ```bash
-curl -X POST http://COORDINATOR_IP:8000/credentials \
-  -H "Content-Type: application/json" \
-  -d '{
-    "participantName": "EITEL Consumer",
-    "participantId": "node-consumer",
-    "did": "did:key:CONSUMER_DID_HERE",
-    "role": "consumer"
-  }'
+uv run python scripts/issue_eitel_credentials.py \
+  --name "EITEL Consumer" \
+  --id "node-consumer" \
+  --did "did:key:CONSUMER_DID_HERE" \
+  --role "consumer" \
+  --output credential-consumer.json
+
+cat credential-consumer.json
 ```
 
-Save the full JSON response as `credential-consumer.json`.
-
-#### 4.3 Collect the coordinator public key
+#### 4.3 Export the coordinator public key
 
 ```bash
 curl http://COORDINATOR_IP:8000/public-key | jq '.keys[0]' > coordinator-ed25519-pub.jwk
+cat coordinator-ed25519-pub.jwk
 ```
 
-You now have three files to distribute:
+You now have three files on the Coordinator machine:
 
 | File | Destination |
 |---|---|
-| `coordinator-ed25519-pub.jwk` | Both nodes → `eitel-node/keys/` |
+| `coordinator-ed25519-pub.jwk` | Both nodes → `eitel-node/keys/coordinator_pubkey.jwk` |
 | `credential-producer.json` | Producer → `eitel-node/identity/producer/credential.json` |
 | `credential-consumer.json` | Consumer → `eitel-node/identity/consumer/credential.json` |
 
 #### 4.4 Copy files to Producer
 
+From the Coordinator machine, copy the credential and public key to Producer:
+
 ```bash
-scp coordinator-ed25519-pub.jwk  user@PRODUCER_IP:/path/to/EITELConnector/eitel-node/keys/coordinator_pubkey.jwk
-scp credential-producer.json     user@PRODUCER_IP:/path/to/EITELConnector/eitel-node/identity/producer/credential.json
+scp credential-producer.json user@PRODUCER_IP:/path/to/EITELConnector/eitel-node/identity/producer/credential.json
+scp coordinator-ed25519-pub.jwk user@PRODUCER_IP:/path/to/EITELConnector/eitel-node/keys/coordinator_pubkey.jwk
+```
+
+Or, on the **Producer machine**, fetch the public key directly from the Coordinator:
+
+```bash
+curl http://COORDINATOR_IP:8000/public-key | jq '.keys[0]' > eitel-node/keys/coordinator_pubkey.jwk
 ```
 
 #### 4.5 Copy files to Consumer
 
+From the Coordinator machine, copy the credential and public key to Consumer:
+
 ```bash
-scp coordinator-ed25519-pub.jwk  user@CONSUMER_IP:/path/to/EITELConnector/eitel-node/keys/coordinator_pubkey.jwk
-scp credential-consumer.json     user@CONSUMER_IP:/path/to/EITELConnector/eitel-node/identity/consumer/credential.json
+scp credential-consumer.json user@CONSUMER_IP:/path/to/EITELConnector/eitel-node/identity/consumer/credential.json
+scp coordinator-ed25519-pub.jwk user@CONSUMER_IP:/path/to/EITELConnector/eitel-node/keys/coordinator_pubkey.jwk
 ```
 
-On Windows, use `pscp` (PuTTY), WinSCP, or PowerShell's `scp` if available.
+Or, on the **Consumer machine**, fetch the public key directly from the Coordinator:
+
+```bash
+curl http://COORDINATOR_IP:8000/public-key | jq '.keys[0]' > eitel-node/keys/coordinator_pubkey.jwk
+```
+
+**On Windows**, use PowerShell `scp`, WinSCP, or manually fetch the files via curl on each node.
 
 ---
 
