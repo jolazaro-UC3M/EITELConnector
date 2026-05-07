@@ -115,7 +115,7 @@ services:
     build: ../caas/download-sink
     container_name: eitel-node-download-sink-consumer
     ports:
-      - "127.0.0.1:8082:8082"
+      - "8082:8082"
     networks:
       eitel-consumer:
       eitel-shared:
