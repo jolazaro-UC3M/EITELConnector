@@ -9,7 +9,7 @@ services:
     environment:
       - EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-producer-control:11002/api/management
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-poc-api-key}
-      - EITEL_NODE_EDC_DSP_ENDPOINT=http://172.20.10.4:11013/api/protocol/2025-1
+      - EITEL_NODE_EDC_DSP_ENDPOINT=http://172.20.10.4:11003/api/protocol/2025-1
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
       - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-P-change-me
       - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
