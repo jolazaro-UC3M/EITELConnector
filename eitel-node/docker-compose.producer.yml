@@ -9,7 +9,7 @@ services:
     environment:
       - EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-producer-control:11002/api/management
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-poc-api-key}
-      - EITEL_NODE_EDC_DSP_ENDPOINT=http://edc-producer-control:11003/api/protocol/2025-1
+      - EITEL_NODE_EDC_DSP_ENDPOINT=http://172.20.10.4:11013/api/protocol/2025-1
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
       - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-P-change-me
       - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
@@ -44,7 +44,7 @@ services:
       - WEB_HTTP_PORT=11000
       - WEB_HTTP_PROTOCOL_PORT=11003
       - WEB_HTTP_PROTOCOL_PATH=/api/protocol
-      - EDC_DSP_CALLBACK_ADDRESS=http://edc-producer-control:11003/api/protocol
+      - EDC_DSP_CALLBACK_ADDRESS=http://172.20.10.4:11003/api/protocol
       - EDC_JDBC_URL=jdbc:postgresql://postgres:5432/edc
       - EDC_JDBC_USER=postgres
       - EDC_JDBC_PASSWORD=${POSTGRES_PASSWORD:-changeme}
@@ -110,29 +110,29 @@ services:
       retries: 3
     restart: unless-stopped
 
-  eitel-coordinator:
-    image: eitel/coordinator:latest
-    build:
-      context: ../../../EITELCoordinator
-      dockerfile: Dockerfile
-    container_name: eitel-node-coordinator-producer
-    restart: unless-stopped
-    environment:
-      COORDINATOR_PRIVATE_KEY_PATH: /keys/coordinator-ed25519-priv.jwk
-      COORDINATOR_PUBLIC_KEY_PATH: /keys/coordinator-ed25519-pub.jwk
-      COORDINATOR_TLS_VERIFY_CLIENT: "false"
-    volumes:
-      - ./keys:/keys:ro
-    ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    networks:
-      - eitel-producer
+  # eitel-coordinator:
+  #   image: eitel/coordinator:latest
+  #   build:
+  #     context: ../../../EITELCoordinator
+  #     dockerfile: Dockerfile
+  #   container_name: eitel-node-coordinator-producer
+  #   restart: unless-stopped
+  #   environment:
+  #     COORDINATOR_PRIVATE_KEY_PATH: /keys/coordinator-ed25519-priv.jwk
+  #     COORDINATOR_PUBLIC_KEY_PATH: /keys/coordinator-ed25519-pub.jwk
+  #     COORDINATOR_TLS_VERIFY_CLIENT: "false"
+  #   volumes:
+  #     - ./keys:/keys:ro
+  #   ports:
+  #     - "8000:8000"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 5s
+  #   networks:
+  #     - eitel-producer
 
 networks:
   eitel-producer:
