@@ -9,7 +9,7 @@ services:
     environment:
       - EITEL_NODE_EDC_MANAGEMENT_URL=http://edc-producer-control:11002/api/management
       - EITEL_NODE_EDC_API_KEY=${EITEL_NODE_EDC_API_KEY:-poc-api-key}
-      - EITEL_NODE_EDC_DSP_ENDPOINT=http://172.20.10.4:11013/api/protocol/2025-1
+      - EITEL_NODE_EDC_DSP_ENDPOINT=http://172.20.10.4:11003/api/protocol/2025-1
       - EITEL_NODE_SESSION_TOKEN_TTL=${EITEL_NODE_SESSION_TOKEN_TTL:-3600}
       - EITEL_NODE_SESSION_TOKEN_SECRET=poc-secret-node-P-change-me
       - EITEL_NODE_COORDINATOR_PUBKEY_JWK_PATH=/keys/coordinator_pubkey.jwk
@@ -51,9 +51,9 @@ services:
       - EDC_API_AUTH_KEY=${EDC_API_AUTH_KEY:-poc-api-key}
       - EDC_MANAGEMENT_CONTEXT_ENABLED=true
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE=default
-      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_URL=http://edc-producer-control:11002/api/dataplane  
-      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_SOURCETYPES=HttpData                                 
-      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_DESTTYPES=HttpData                                   
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_URL=http://edc-producer-control:11002/api/dataplane
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_SOURCETYPES=HttpData
+      - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_DESTTYPES=HttpData
       - EDC_DATAPLANE_SELECTOR_DEFAULTPLANE_PUBLICAPIURL=http://edc-producer-control:11002/api/public
       - EDC_PROTOCOL_DSP_HTTP_ENABLED=true
       - EDC_DSP_PROTOCOL_ENABLED=true
