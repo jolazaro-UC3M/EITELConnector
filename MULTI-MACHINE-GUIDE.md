@@ -226,7 +226,30 @@ The `eitel-coordinator` service in `docker-compose.producer.yml` is for **single
 #   ...
 ```
 
-#### 2.6 Start the producer stack (first boot)
+#### 2.6 (Optional) Deploy EDC management UI
+
+To manage assets, policies, and contracts through a web interface instead of raw API requests, add the EDC UI service to `docker-compose.producer.yml`:
+
+```yaml
+  edc-ui:
+    build: ../caas/edc-ui
+    container_name: eitel-node-edc-ui-producer
+    ports:
+      - "9090:80"
+    environment:
+      - NEXT_PUBLIC_MANAGEMENT_API_URL=http://edc-producer-control:11002/api/management
+      - NEXT_PUBLIC_MANAGEMENT_API_AUTH_KEY=poc-api-key
+      - NEXT_PUBLIC_CONNECTOR_NAME=Producer Connector
+      - NEXT_PUBLIC_DSP_URL=http://PRODUCER_IP:11003/api/protocol/2025-1
+    networks:
+      - eitel-producer
+      - eitel-shared
+    restart: unless-stopped
+```
+
+Replace `PRODUCER_IP` with your actual LAN IP. You can skip this step if you prefer using raw API requests (Phase 9 shows both approaches).
+
+#### 2.7 Start the producer stack (first boot)
 
 ```bash
 docker compose -f docker-compose.producer.yml up -d --build
@@ -234,7 +257,7 @@ docker compose -f docker-compose.producer.yml up -d --build
 
 Wait ~30 seconds for services to start.
 
-#### 2.7 Get the producer DID
+#### 2.8 Get the producer DID
 
 ```bash
 curl http://PRODUCER_IP:8090/health
@@ -247,6 +270,8 @@ Expected response:
 ```
 
 **Save the `node_did` value** — you need it in Phase 4.
+
+If you deployed the UI in Step 2.6, it's now accessible at `http://PRODUCER_IP:9090`.
 
 ---
 
@@ -299,19 +324,44 @@ download-sink:
 
 This allows the Producer machine to reach `http://CONSUMER_IP:8082/ingest`.
 
-#### 3.6 Start the consumer stack (first boot)
+#### 3.6 (Optional) Deploy EDC management UI
+
+To manage assets, policies, and contracts through a web interface, add the EDC UI service to `docker-compose.consumer.yml`:
+
+```yaml
+  edc-ui:
+    build: ../caas/edc-ui
+    container_name: eitel-node-edc-ui-consumer
+    ports:
+      - "9091:80"
+    environment:
+      - NEXT_PUBLIC_MANAGEMENT_API_URL=http://edc-consumer-control:11012/api/management
+      - NEXT_PUBLIC_MANAGEMENT_API_AUTH_KEY=poc-api-key
+      - NEXT_PUBLIC_CONNECTOR_NAME=Consumer Connector
+      - NEXT_PUBLIC_DSP_URL=http://CONSUMER_IP:11013/api/protocol/2025-1
+    networks:
+      - eitel-consumer
+      - eitel-shared
+    restart: unless-stopped
+```
+
+Replace `CONSUMER_IP` with your actual LAN IP. You can skip this step if you prefer using raw API requests (Phase 9 shows both approaches).
+
+#### 3.7 Start the consumer stack (first boot)
 
 ```bash
 docker compose -f docker-compose.consumer.yml up -d --build
 ```
 
-#### 3.7 Get the consumer DID
+#### 3.8 Get the consumer DID
 
 ```bash
 curl http://CONSUMER_IP:8091/health
 ```
 
 **Save the `node_did` value.**
+
+If you deployed the UI in Step 3.6, it's now accessible at `http://CONSUMER_IP:9091`.
 
 ---
 
@@ -321,7 +371,7 @@ On the **Coordinator machine**, use the credential issuance script to generate V
 
 #### 4.1 Issue VC for Producer
 
-You have the Producer's DID from Phase 2.7. On the Coordinator machine:
+You have the Producer's DID from Phase 2.8. On the Coordinator machine:
 
 ```bash
 cd EITELCoordinator
@@ -337,7 +387,7 @@ cat credential-producer.json
 
 #### 4.2 Issue VC for Consumer
 
-You have the Consumer's DID from Phase 3.7. On the Coordinator machine:
+You have the Consumer's DID from Phase 3.8. On the Coordinator machine:
 
 ```bash
 uv run python scripts/issue_eitel_credentials.py \
@@ -530,9 +580,69 @@ Should list the consumer DID in `registered_peers`.
 
 ### Phase 9 — Run the EDC transfer
 
-The transfer flow requires EDC contract negotiation before data moves. The PowerShell script `run-poc-transfer.ps1` automates this end-to-end for single-machine or scenarios where all ports are forwarded locally. For true multi-machine, use the manual steps below.
+The transfer flow requires EDC contract negotiation before data moves. You can perform this flow in two ways:
 
-#### PowerShell (single-machine or with port forwarding)
+| Approach | Best for | Effort |
+|---|---|---|
+| **Option A: Web UI** | Visual exploration, demos, avoiding CLI | Easiest (point & click) |
+| **Option B: Raw API** | Automation, scripting, detailed control | Moderate (curl commands) |
+
+**UI vs API comparison:**
+
+- **Web UI** automatically handles offer ID extraction and negotiation state polling (you just click buttons)
+- **Raw API** gives you full control and works in any environment with curl installed
+- Both achieve the same result; choose based on your preference
+
+Choose one approach below.
+
+#### Option A: Web UI (GUI)
+
+**Prerequisites**: You deployed the edc-ui service in Phase 2.6 (Producer) and Phase 3.6 (Consumer).
+
+**On Producer machine:**
+
+1. Open `http://PRODUCER_IP:9090` in a browser
+2. **Create asset**: Click "Assets" → "Create Asset"
+   - Key: `test-dataset.json`
+   - Name: `Test Dataset`
+   - Description: `Test data for transfer`
+   - Data source: Choose "Local file" or "Remote URL" (for this PoC, use copyparty)
+   - Base URL: `http://copyparty:3923/files/test-dataset.json?pw=changeme`
+3. **Create policy**: Click "Policies" → "Create Policy"
+   - ID: `policy-test-dataset`
+   - Permissions: `USE` action, target `test-dataset.json`, no constraints
+4. **Create contract definition**: Click "Contract Definitions" → "Create Definition"
+   - ID: `contract-test-dataset`
+   - Asset selector: `test-dataset.json`
+   - Access policy: `policy-test-dataset`
+   - Contract policy: `policy-test-dataset`
+
+**On Consumer machine:**
+
+1. Open `http://CONSUMER_IP:9091` in a browser
+2. **Browse catalog**: Click "Catalog" → "Search Remote Catalog"
+   - Counter-party ID: `producer-connector`
+   - DSP URL: `http://PRODUCER_IP:11003/api/protocol/2025-1`
+   - Click "Search" to fetch the catalog
+3. **Request contract**: Select the `test-dataset.json` asset → Click "Request Contract"
+   - The UI will automatically handle offer ID extraction and negotiation
+   - Wait for agreement state to show "FINALIZED"
+4. **Start transfer**: Click "Transfers" → "Start Transfer"
+   - Select the agreement from step 3
+   - Transfer type: `HttpData-PUSH`
+   - Sink URL: `http://CONSUMER_IP:8082/ingest`
+   - Click "Start"
+5. **Monitor transfer**: Transfers list shows state progression → `COMPLETED`
+
+**Verify downloaded file** (see Phase 10).
+
+---
+
+#### Option B: Raw API Requests (curl)
+
+**Prerequisites**: Basic familiarity with curl and JSON. No UI needed.
+
+**PowerShell script (single-machine or with port forwarding)**
 
 ```powershell
 cd eitel-node
@@ -542,7 +652,7 @@ cd eitel-node
   -ConsumerEDCManagementUrl "http://CONSUMER_IP:11012/api/management"
 ```
 
-#### Manual curl steps (multi-machine)
+#### Manual curl steps (multi-machine distributed mode)
 
 **Step 9a — Seed test data on Producer copyparty**
 
@@ -742,10 +852,12 @@ Expected: `{"dataset":"test","records":[{"id":1}]}`
 | Producer | 11000 | EDC default HTTP | Inbound | |
 | Producer | 11002 | EDC management | Inbound (management only) | |
 | Producer | 11003 | EDC DSP protocol | Inbound from Consumer EDC | |
+| Producer | 9090 | EDC UI (optional) | Localhost or LAN | Deployed in Phase 2.6 |
 | Consumer | 8091 | Handshake API | Inbound from Producer, Coordinator | |
 | Consumer | 11010 | EDC default HTTP | Inbound | |
 | Consumer | 11012 | EDC management | Inbound (management only) | |
 | Consumer | 11013 | EDC DSP protocol | Inbound from Producer EDC | |
+| Consumer | 9091 | EDC UI (optional) | Localhost or LAN | Deployed in Phase 3.6 |
 | Consumer | 8082 | Download sink | Inbound from Producer EDC | Adjusted in Phase 3.5 for distributed mode |
 | Producer | 3923 | Copyparty | Localhost only (bound to 127.0.0.1) | |
 | Consumer | 3924 | Copyparty | Localhost only (bound to 127.0.0.1) | |
