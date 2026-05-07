@@ -814,6 +814,46 @@ docker exec eitel-node-handshake-producer cat /keys/coordinator_pubkey.jwk
 - Check that `EDC_DSP_CALLBACK_ADDRESS` uses the LAN IP, not an internal Docker hostname. The producer's EDC must be reachable from the consumer using this address.
 - Verify: `curl http://PRODUCER_IP:11003/api/protocol/.well-known/dspace-version` returns a version string.
 
+### EDC negotiation stuck at AGREEING (Windows / Docker Desktop)
+
+**Symptom**: the Producer's EDC receives the negotiation and reaches state `AGREEING`, but never advances to `AGREED`. The Consumer stays in `REQUESTED`.
+
+**Cause**: a Docker bridge network on the Producer machine has a subnet that overlaps with the physical LAN. The Linux kernel routes packets for the Consumer's IP into the Docker bridge instead of out the real network interface, so the Producer's EDC can never call back to the Consumer.
+
+**Diagnose**: from the Producer, test whether the EDC container can reach the Consumer's DSP port:
+
+```bash
+docker exec eitel-node-edc-producer sh -c \
+  "curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}' \
+   http://CONSUMER_IP:11013/api/protocol/2025-1/.well-known/dspace-version"
+```
+
+If this times out or returns `No route to host`, there is a subnet conflict. Find the offending network:
+
+```powershell
+# PowerShell — lists all Docker networks whose subnet overlaps the LAN
+docker network ls --format "{{.ID}} {{.Name}}" | ForEach-Object {
+    $id, $name = $_ -split ' ', 2
+    $subnet = docker network inspect $id --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+    "$name  ->  $subnet"
+}
+```
+
+Look for any network with a subnet that covers your `LAN_IP` range (e.g. `172.20.0.0/16` covering a LAN on `172.20.10.0/28`). If the offending network belongs to a leftover container from earlier local testing, stop that container and remove the network:
+
+```bash
+docker stop <container>
+docker rm <container>
+docker network rm <network-name>
+```
+
+**WSL2 mirrored networking (Windows — recommended)**: create `%USERPROFILE%\.wslconfig` with the following content, then restart WSL2 (`wsl --shutdown`) and Docker Desktop. This makes WSL2 use the host's real network interfaces and reduces the chance of future subnet conflicts:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
 ### Transfer stuck in REQUESTED or TERMINATED
 
 - **REQUESTED but not progressing**: dataplane may not have registered. Check `GET http://PRODUCER_IP:11002/api/management/v3/dataplanes` returns at least one entry.
