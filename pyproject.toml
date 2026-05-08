@@ -15,3 +15,8 @@ dependencies = [
     "pytest>=9.0.3",
     "uvicorn>=0.44.0",
 ]
+
+[project.optional-dependencies]
+coordinator = [
+    "EITELCoordinator @ git+https://github.com/jolazaro-UC3M/EITELCoordinator.git",
+]

@@ -1,0 +1,192 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: conectorstar-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${STAR_POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - conectorstar_pg_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - conectorstar-net
+
+  runtime:
+    image: eitel/eclipse-edc-runtime:0.16.0
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+    container_name: conectorstar
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EDC_PARTICIPANT_ID: conectorstar
+      EDC_PARTICIPANT_CONTEXT_ID: conectorstar
+      EDC_HOSTNAME: conectorstar
+      WEB_HTTP_PORT: 11000
+      WEB_HTTP_PATH: /api
+      WEB_HTTP_CONTROL_PORT: 11001
+      WEB_HTTP_CONTROL_PATH: /api/control
+      WEB_HTTP_MANAGEMENT_PORT: 11002
+      WEB_HTTP_MANAGEMENT_PATH: /api/management
+      WEB_HTTP_PROTOCOL_PORT: 11003
+      WEB_HTTP_PROTOCOL_PATH: /api/v1/dsp
+      EDC_DSP_CALLBACK_ADDRESS: http://conectorstar:11003/api/v1/dsp
+      EDC_MANAGEMENT_CONTEXT_ENABLED: "true"
+      EDC_TRANSFER_PROXY_TOKEN_SIGNER_PRIVATEKEY_ALIAS: private-key
+      EDC_TRANSFER_PROXY_TOKEN_VERIFIER_PUBLICKEY_ALIAS: public-key
+      EDC_JDBC_URL: jdbc:postgresql://postgres:5432/conectorstar_db
+      EDC_JDBC_USER: postgres
+      EDC_JDBC_PASSWORD: ${STAR_POSTGRES_PASSWORD}
+      EDC_API_AUTH_KEY: ${STAR_EDC_API_AUTH_KEY}
+      EDC_WEB_HTTP_MANAGEMENT_AUTH_DAC_AUDIENCE: conectorstar
+      EDC_WEB_REST_CORS_ENABLED: "true"
+      EDC_WEB_REST_CORS_HEADERS: "origin,content-type,accept,x-api-key,authorization"
+      EDC_WEB_REST_CORS_METHODS: "GET,POST,PUT,DELETE,OPTIONS"
+      EDC_WEB_REST_CORS_ORIGINS: ${STAR_UI_ORIGIN:-http://localhost:12020}
+    volumes:
+      - ../../dataspaceconnector-configuration.properties:/opt/edc/dataspaceconnector-configuration.properties:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail -X GET http://localhost:11000/api/check/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    networks:
+      - conectorstar-net
+
+  ui:
+    image: eitel/edc-ui-star:latest
+    build:
+      context: ../../caas/edc-ui
+      dockerfile: Dockerfile
+    container_name: conectorstar-ui
+    restart: always
+    depends_on:
+      runtime:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_MANAGEMENT_API_URL: /conectorstar/api/management
+      NEXT_PUBLIC_MANAGEMENT_API_AUTH_KEY: ${STAR_EDC_API_AUTH_KEY}
+      NEXT_PUBLIC_CONNECTOR_NAME: conectorstar
+      NEXT_PUBLIC_DSP_URL: ${STAR_PUBLIC_DSP_URL:-http://localhost:12020/conectorstar/api/v1/dsp/2025-1}
+      NEXT_PUBLIC_STAR_MODE: ${STAR_UI_MODE:-true}
+      NEXT_PUBLIC_STAR_COORDINATOR_NAME: ${STAR_COORDINATOR_NAME:-UC3M Coordinador EITEL}
+      NEXT_PUBLIC_STAR_COORDINATOR_URL: ${STAR_COORDINATOR_URL:-http://localhost:12030}
+      NEXT_PUBLIC_STAR_DID_METHOD: ${STAR_DID_METHOD:-did:key}
+      NEXT_PUBLIC_STAR_PARTICIPANT_DID: ${STAR_PARTICIPANT_DID:-did:key:pending-conectorstar}
+      NEXT_PUBLIC_STAR_VC_PRESENT: ${STAR_VC_PRESENT:-false}
+      NEXT_PUBLIC_STAR_VC_ISSUER: ${STAR_VC_ISSUER:-UC3M}
+      NEXT_PUBLIC_ARCGIS_AUTH_ENABLED: ${STAR_ARCGIS_AUTH_ENABLED:-true}
+      NEXT_PUBLIC_ARCGIS_PORTAL_URL: ${STAR_ARCGIS_PORTAL_URL:-}
+      NEXT_PUBLIC_ARCGIS_CLIENT_ID: ${STAR_ARCGIS_CLIENT_ID:-}
+      NEXT_PUBLIC_ARCGIS_REDIRECT_URI: ${STAR_ARCGIS_REDIRECT_URI:-http://localhost:12020/conectorstar/}
+      NEXT_PUBLIC_ARCGIS_REQUIRED_ORG_ID: ${STAR_ARCGIS_REQUIRED_ORG_ID:-}
+      NEXT_PUBLIC_ARCGIS_REQUIRED_GROUP_ID: ${STAR_ARCGIS_REQUIRED_GROUP_ID:-}
+    volumes:
+      - ../../caas/edc-ui/public/index.final.html:/usr/share/nginx/html/index.final.html:ro
+      - ../../caas/edc-ui/public/index.final.html:/usr/share/nginx/html/index.html:ro
+      - ../../caas/edc-ui/public/config.template.js:/usr/share/nginx/html/config.template.js:ro
+      - ../../caas/edc-ui/public/assets:/usr/share/nginx/html/assets:ro
+    networks:
+      - conectorstar-net
+
+  eitel-coordinator:
+    image: eitel/coordinator:latest
+    build:
+      context: ../../EITELCoordinator
+      dockerfile: Dockerfile
+    container_name: conectorstar-coordinator
+    restart: unless-stopped
+    environment:
+      COORDINATOR_PRIVATE_KEY_PATH: /keys/coordinator-ed25519-priv.jwk
+      COORDINATOR_PUBLIC_KEY_PATH: /keys/coordinator-ed25519-pub.jwk
+      COORDINATOR_BASE_URL: ${COORDINATOR_BASE_URL:-http://localhost:12030}
+      COORDINATOR_TLS_VERIFY_CLIENT: "false"
+    volumes:
+      - ./keys:/keys:ro
+    ports:
+      - "12030:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - conectorstar-net
+
+  local-assets:
+    build:
+      context: ../../caas/control-plane
+      dockerfile: Dockerfile
+    container_name: conectorstar-local-assets
+    restart: always
+    environment:
+      CAAS_LOCAL_ASSETS_INTERNAL_BASE_URL: http://conectorstar-local-assets:8081/v1/local-assets/files
+      CAAS_LOCAL_ASSETS_PUBLIC_BASE_URL: ${STAR_UI_ORIGIN:-http://localhost:12020}/conectorstar/local-assets/files
+    volumes:
+      - conectorstar_local_assets_data:/app/data/local-assets
+    networks:
+      - conectorstar-net
+
+  download-sink:
+    build:
+      context: ../../caas/download-sink
+      dockerfile: Dockerfile
+    container_name: conectorstar-download-sink
+    restart: always
+    volumes:
+      - conectorstar_download_sink_data:/app/data
+    networks:
+      - conectorstar-net
+
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: conectorstar-gateway
+    restart: always
+    depends_on:
+      - ui
+      - runtime
+      - local-assets
+      - download-sink
+    environment:
+      NGINX_CONNECTOR_PREFIX: conectorstar
+      NGINX_CONNECTOR_UPSTREAM: runtime
+      NGINX_UI_UPSTREAM: ui:8080
+      NGINX_LOCAL_ASSETS_UPSTREAM: local-assets:8081
+      NGINX_DOWNLOAD_SINK_UPSTREAM: download-sink:8082
+      NGINX_MANAGEMENT_API_KEY: ${STAR_EDC_API_AUTH_KEY}
+    ports:
+      - "12020:80"
+    volumes:
+      - ../shared/nginx/nginx-connector.template.conf:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - conectorstar-net
+
+volumes:
+  conectorstar_pg_data:
+    name: conectorstar_pg_data
+  conectorstar_local_assets_data:
+    name: conectorstar_local_assets_data
+  conectorstar_download_sink_data:
+    name: conectorstar_download_sink_data
+
+networks:
+  conectorstar-net:
+    driver: bridge

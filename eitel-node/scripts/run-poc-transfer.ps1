@@ -378,16 +378,14 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Failed to seed dataset in producer Copyparty." }
 
         Write-Host "[7/12] Waiting for producer EDC management API..."
-        # Use QuerySpec request to check EDC readiness (OPTIONS may not be supported)
+        # Use cross-platform HTTP check (works on Windows, Linux, macOS with PowerShell Core)
         Invoke-WithRetry -Description "EDC management API availability" -Retries 90 -DelaySeconds 3 -Action {
             try {
-                Invoke-RestMethod -Uri "$EDCManagementUrl/v3/assets/request" `
-                    -Method Post `
+                $response = Invoke-WebRequest -Uri "http://localhost:11002/api/management/v3/assets" `
+                    -Method Options `
                     -Headers @{ "x-api-key" = $EDCApiKey } `
-                    -ContentType "application/json" `
-                    -Body '{"@context":{"@vocab":"https://w3id.org/edc/v0.0.1/ns/"},"@type":"QuerySpec","limit":1}' `
                     -TimeoutSec 5 `
-                    -ErrorAction Stop | Out-Null
+                    -ErrorAction Stop
             } catch {
                 # Connection refused or timeout - EDC not ready yet
                 throw "EDC management API not responding: $($_.Exception.Message)"

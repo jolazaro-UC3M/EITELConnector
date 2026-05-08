@@ -66,12 +66,14 @@
             updateSecretsStatus('warn', 'Secrets runtime no disponible: usando almacenamiento local persistente');
             const outSecrets = document.getElementById('secretsOut');
             if (outSecrets) outSecrets.textContent = JSON.stringify(local.data, null, 2);
+            try { refreshStarTrustPanel(); } catch {}
             if (showOutput) writeOut({ status: 200, source: 'local', data: local.data });
             return { status: 200, source: 'local', data: local.data };
           }
 
           state.secretsAvailable = false;
           updateSecretsStatus('danger', 'Secrets no disponible ni en runtime ni en almacenamiento local');
+          try { refreshStarTrustPanel(); } catch {}
           if (showOutput) writeOut(local);
           return local;
     }

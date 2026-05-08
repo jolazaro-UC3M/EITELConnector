@@ -1,4 +1,15 @@
-﻿function summarizePolicyTerms(policyObj) {
+﻿/**
+ * Summarizes policy terms from an ODRL policy object.
+ * Extracts constraints from permissions and formats them as a readable string.
+ * 
+ * @param {Object} policyObj - ODRL policy object containing permissions and constraints
+ * @returns {string} Formatted constraint summary or message indicating no explicit constraints
+ * 
+ * @example
+ * const summary = summarizePolicyTerms(policyDefinition);
+ * // Returns: "purpose eq USE | recipient eq urn:uuid:123"
+ */
+function summarizePolicyTerms(policyObj) {
       const permsRaw = policyObj?.['odrl:permission'] || policyObj?.permission || [];
       const perms = Array.isArray(permsRaw) ? permsRaw : [permsRaw];
       const constraints = perms.flatMap(p => {
@@ -9,6 +20,17 @@
       return constraints.map(c => `${c.leftOperand || c['odrl:leftOperand'] || 'condición'} ${c.operator || c['odrl:operator'] || 'eq'} ${c.rightOperand || c['odrl:rightOperand'] || '-'}`).join(' | ');
     }
 
+    /**
+     * Parses a keyword list from various input formats.
+     * Handles arrays, strings (split by comma, semicolon, or newline), and null/undefined values.
+     * 
+     * @param {string|string[]|null|undefined} raw - Raw keyword input in array or string format
+     * @returns {string[]} Array of trimmed, non-empty keywords
+     * 
+     * @example
+     * parseKeywordList('python, javascript; nodejs\nreact');
+     * // Returns: ['python', 'javascript', 'nodejs', 'react']
+     */
     function parseKeywordList(raw) {
       if (Array.isArray(raw)) return raw.map(v => String(v || '').trim()).filter(Boolean);
       if (!raw) return [];
@@ -18,6 +40,17 @@
         .filter(Boolean);
     }
 
+    /**
+     * Returns the first non-empty value from an array of candidates.
+     * Skips null, undefined, and whitespace-only strings.
+     * 
+     * @param {any[]} values - Array of values to check
+     * @returns {string} First non-empty value, or empty string if none found
+     * 
+     * @example
+     * firstNonEmpty(['', null, '  ', 'found', 'second']);
+     * // Returns: 'found'
+     */
     function firstNonEmpty(values = []) {
       for (const value of values) {
         if (value === undefined || value === null) continue;
@@ -27,11 +60,34 @@
       return '';
     }
 
+    /**
+     * Safely converts any value to a trimmed string with fallback support.
+     * Returns fallback if value is null, undefined, or empty after trimming.
+     * 
+     * @param {any} value - Value to convert
+     * @param {string} [fallback=''] - Fallback value if conversion results in empty string
+     * @returns {string} Converted and trimmed text or fallback
+     * 
+     * @example
+     * safeText(null, 'default'); // Returns: 'default'
+     * safeText('  hello  '); // Returns: 'hello'
+     */
     function safeText(value, fallback = '') {
       const txt = value === undefined || value === null ? '' : String(value).trim();
       return txt || fallback;
     }
 
+    /**
+     * Escapes HTML special characters in a string for safe embedding in HTML.
+     * Converts &, <, >, ", and ' to their HTML entity equivalents.
+     * 
+     * @param {any} value - Value to escape
+     * @returns {string} HTML-escaped string
+     * 
+     * @example
+     * htmlEscape('<script>alert("xss")</script>');
+     * // Returns: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;'
+     */
     function htmlEscape(value) {
       return String(value || '')
         .replace(/&/g, '&amp;')
@@ -41,17 +97,51 @@
         .replace(/'/g, '&#39;');
     }
 
+    /**
+     * Resolves an asset image URL, providing a default if empty.
+     * Returns the EITEL brand logo as fallback for missing or empty URLs.
+     * 
+     * @param {string|null|undefined} rawImageUrl - Raw image URL from asset metadata
+     * @returns {string} Valid image URL or default EITEL logo path
+     * 
+     * @example
+     * resolveAssetImageUrl(''); // Returns: 'assets/eitel-logo-brand.png'
+     * resolveAssetImageUrl('https://example.com/logo.png'); // Returns provided URL
+     */
     function resolveAssetImageUrl(rawImageUrl) {
       const candidate = String(rawImageUrl || '').trim();
       if (candidate) return candidate;
       return 'assets/eitel-logo-brand.png';
     }
 
+    /**
+     * Checks if an image URL is the default EITEL brand logo.
+     * Performs case-insensitive comparison with known default paths.
+     * 
+     * @param {string|null|undefined} imageUrl - Image URL to check
+     * @returns {boolean} True if URL matches default EITEL logo path
+     * 
+     * @example
+     * isDefaultAssetImage('assets/eitel-logo-brand.png'); // Returns: true
+     * isDefaultAssetImage('https://example.com/logo.png'); // Returns: false
+     */
     function isDefaultAssetImage(imageUrl) {
       const txt = String(imageUrl || '').trim().toLowerCase();
       return txt.endsWith('/assets/eitel-logo-brand.png') || txt === 'assets/eitel-logo-brand.png';
     }
 
+    /**
+     * Formats a connector name for display in UI.
+     * Recognizes known connectors (UC3M, FUENLABRADA) and formats accordingly.
+     * 
+     * @param {string|null|undefined} rawConnector - Raw connector identifier
+     * @returns {string} Formatted connector label in uppercase
+     * 
+     * @example
+     * prettyConnectorLabel('conectoruc3m'); // Returns: 'UC3M'
+     * prettyConnectorLabel('conectorFuenlabrada'); // Returns: 'FUENLABRADA'
+     * prettyConnectorLabel('unknown'); // Returns: 'UNKNOWN'
+     */
     function prettyConnectorLabel(rawConnector) {
       const txt = String(rawConnector || '').trim();
       if (!txt) return 'CONNECTOR';
@@ -61,6 +151,21 @@
       return txt.replace(/^conector/i, '').trim().toUpperCase() || 'CONNECTOR';
     }
 
+    /**
+     * Extracts standardized metadata from a dataset object.
+     * Handles multiple metadata formats (DublinCore, EDC, EITEL properties) and consolidates keywords.
+     * 
+     * @param {Object} dataset - Dataset object containing metadata properties
+     * @returns {Object} Standardized metadata object with title, description, imageUrl, and keywords
+     * @returns {string} returns.title - Dataset title
+     * @returns {string} returns.description - Dataset description
+     * @returns {string} returns.imageUrl - Image/icon URL
+     * @returns {string[]} returns.keywords - Array of unique keywords
+     * 
+     * @example
+     * const metadata = extractDatasetMetadata(dataset);
+     * console.log(metadata.title, metadata.description, metadata.keywords);
+     */
     function extractDatasetMetadata(dataset) {
       const d = dataset || {};
       const props = d?.properties || d?.['dct:properties'] || d?.['edc:properties'] || {};
@@ -104,6 +209,24 @@
       };
     }
 
+    /**
+     * Builds a complete DublinCore JSON-LD representation of a policy.
+     * Formats policy information according to W3C standards with ODRL and EITEL namespaces.
+     * 
+     * @param {Object} row - Policy row containing asset and policy information
+     * @param {string} row.assetId - Asset identifier
+     * @param {string} row.assetTitle - Human-readable asset title
+     * @param {string} row.assetDescription - Asset description text
+     * @param {string[]} row.assetKeywords - Array of keywords
+     * @param {string} row.connectorId - Connector identifier
+     * @param {string} row.counterPartyAddress - Counter-party connector address
+     * @param {Object} row.policyRaw - Raw ODRL policy object
+     * @returns {string} JSON-LD formatted policy representation
+     * 
+     * @example
+     * const jsonLd = buildPolicyDcatJsonLd(policyRow);
+     * console.log(JSON.parse(jsonLd));
+     */
     function buildPolicyDcatJsonLd(row) {
       const payload = {
         '@context': {
@@ -124,6 +247,17 @@
       return JSON.stringify(payload, null, 2);
     }
 
+    /**
+     * Parses connector candidates from UI inputs.
+     * Extracts connector identifiers from textarea and single input fields,
+     * normalizes them, and provides sensible defaults.
+     * 
+     * @returns {string[]} Array of unique connector URLs or identifiers
+     * 
+     * @example
+     * const connectors = parseConnectorCandidates();
+     * // Returns: ['conectoruc3m', 'conectorFuenlabrada', ...]
+     */
     function parseConnectorCandidates() {
       const listRaw = document.getElementById('catalogConnectorsList')?.value || '';
       const values = listRaw
@@ -136,10 +270,29 @@
         });
       const single = String(document.getElementById('searchConnectorId')?.value || '').trim();
       if (single) values.unshift(canonicalConnectorPrefix(single) || single);
+      if (!values.length) {
+        const configuredList = String(cfg.connectorCatalogList || '').trim();
+        if (configuredList) {
+          configuredList.split(/[\n,;]+/g)
+            .map(v => String(v || '').trim())
+            .filter(Boolean)
+            .forEach(v => values.push(canonicalConnectorPrefix(v) || v));
+        }
+      }
       if (!values.length) values.push('conectoruc3m', 'conectorFuenlabrada');
       return [...new Set(values)];
     }
 
+    /**
+     * Resolves the public origin URL for the connector.
+     * Uses DSP URL config if available, fallback to current window location.
+     * 
+     * @returns {string} Public origin URL (e.g., 'https://example.com')
+     * 
+     * @example
+     * const origin = getPublicConnectorOrigin();
+     * // Returns: 'http://localhost:3000' or configured DSP origin
+     */
     function getPublicConnectorOrigin() {
       try {
         const cfgDsp = String(cfg?.dspUrl || '').trim();
@@ -159,6 +312,17 @@
     const agreementSourceHints = new Map();
     let arcgisTokenUiTimer = null;
 
+    /**
+     * Normalizes transfer state codes to human-readable state names.
+     * Maps numeric codes to standard EDC transfer state strings.
+     * 
+     * @param {string|number|null|undefined} raw - Raw state code
+     * @returns {string} Normalized state name (e.g., 'INITIAL', 'COMPLETED') or raw value if unmapped
+     * 
+     * @example
+     * normalizeTransferState('700'); // Returns: 'COMPLETED'
+     * normalizeTransferState('500'); // Returns: 'STARTED'
+     */
     function normalizeTransferState(raw) {
       if (raw === undefined || raw === null) return '-';
       const txt = String(raw).trim();
@@ -175,11 +339,32 @@
       return numericMap[txt] || txt;
     }
 
+    /**
+     * Checks if a transfer state represents a terminal state.
+     * Terminal states indicate transfer is no longer in progress.
+     * 
+     * @param {string|number} state - Transfer state to check
+     * @returns {boolean} True if state is COMPLETED, TERMINATED, or FAILED
+     * 
+     * @example
+     * isTransferTerminalState('700'); // Returns: true (COMPLETED)
+     * isTransferTerminalState('500'); // Returns: false (STARTED)
+     */
     function isTransferTerminalState(state) {
       const normalized = normalizeTransferState(state);
       return normalized === 'COMPLETED' || normalized === 'TERMINATED' || normalized === 'FAILED';
     }
 
+    /**
+     * Retrieves locally stored transfer records from browser storage.
+     * Handles JSON parsing errors gracefully by returning empty array.
+     * 
+     * @returns {Object[]} Array of local transfer record objects
+     * 
+     * @example
+     * const transfers = getLocalTransferRecords();
+     * console.log(transfers.length); // Number of stored transfers
+     */
     function getLocalTransferRecords() {
       try {
         const raw = localStorage.getItem(localTransferStorageKey);
@@ -190,12 +375,30 @@
       }
     }
 
+    /**
+     * Saves transfer records to browser local storage.
+     * Limits storage to 200 most recent records to prevent bloat.
+     * 
+     * @param {Object[]} records - Array of transfer records to save
+     * 
+     * @example
+     * saveLocalTransferRecords([{id: '123', status: 'completed'}, ...]);
+     */
     function saveLocalTransferRecords(records) {
       try {
         localStorage.setItem(localTransferStorageKey, JSON.stringify(records.slice(0, 200)));
       } catch {}
     }
 
+    /**
+     * Adds a single transfer record to local storage.
+     * Retrieves current records, appends new one, and saves back.
+     * 
+     * @param {Object} record - Transfer record to add
+     * 
+     * @example
+     * addLocalTransferRecord({id: 'new-transfer-123', status: 'active'});
+     */
     function addLocalTransferRecord(record) {
       const current = getLocalTransferRecords();
       current.unshift(record);
@@ -203,6 +406,15 @@
       return record;
     }
 
+    /**
+     * Retrieves IDs of transfers hidden by user in UI.
+     * Hidden transfers are tracked locally but not displayed to user.
+     * 
+     * @returns {string[]} Array of hidden transfer IDs
+     * 
+     * @example
+     * const hiddenIds = getHiddenTransferIds();
+     */
     function getHiddenTransferIds() {
       try {
         const raw = localStorage.getItem(hiddenTransferStorageKey);
@@ -213,6 +425,14 @@
       }
     }
 
+    /**
+     * Saves a set of transfer IDs to be hidden from UI.
+     * 
+     * @param {string[]} ids - Array of transfer IDs to hide
+     * 
+     * @example
+     * saveHiddenTransferIds(['transfer-1', 'transfer-2']);
+     */
     function saveHiddenTransferIds(ids) {
       try {
         const unique = Array.from(new Set((Array.isArray(ids) ? ids : []).filter(Boolean))).slice(-500);
@@ -220,6 +440,14 @@
       } catch {}
     }
 
+    /**
+     * Removes a transfer record from local storage by ID.
+     * 
+     * @param {string} transferId - ID of transfer record to delete
+     * 
+     * @example
+     * removeLocalTransferRecordById('transfer-123');
+     */
     function removeLocalTransferRecordById(transferId) {
       const current = getLocalTransferRecords();
       const next = current.filter(t => (t['@id'] || t.id || '') !== transferId);
@@ -227,12 +455,32 @@
       return next.length !== current.length;
     }
 
+    /**
+     * Hides a transfer record from UI by adding its ID to hidden set.
+     * Record remains in storage but is not displayed to user.
+     * 
+     * @param {string} transferId - ID of transfer to hide
+     * 
+     * @example
+     * hideTransferRecordById('transfer-123');
+     */
     function hideTransferRecordById(transferId) {
       const hidden = getHiddenTransferIds();
       if (!hidden.includes(transferId)) hidden.push(transferId);
       saveHiddenTransferIds(hidden);
     }
 
+    /**
+     * Builds a standardized local transfer record from transfer result.
+     * Normalizes contract and transfer identifiers, extracts metadata from result.
+     * 
+     * @param {Object} result - Transfer result from EDC connector
+     * @returns {Object} Normalized transfer record for local storage
+     * 
+     * @example
+     * const record = buildLocalTransferRecord(edcTransferResult);
+     * console.log(record.transferId, record.state, record.createdAt);
+     */
     function buildLocalTransferRecord(result) {
       const status = Number(result?.status || 0);
       const localTransferId = `local-download-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -256,6 +504,17 @@
       };
     }
 
+    /**
+     * Normalizes a transfer row for display, extracting common properties.
+     * Maps various property name formats to standard output format.
+     * 
+     * @param {Object} row - Transfer row object from API
+     * @returns {Object} Normalized transfer object with standard properties
+     * 
+     * @example
+     * const normalized = normalizeTransferRow(apiTransferRow);
+     * console.log(normalized.transferId, normalized.state, normalized.createdAt);
+     */
     function normalizeTransferRow(row) {
       const id = row['@id'] || row.id || '';
       const createdAt = row.createdAt || row['edc:createdAt'] || row.startedAt || row['edc:startedAt'] || '';
@@ -270,6 +529,17 @@
       };
     }
 
+    /**
+     * Aggregates all transfer rows from local storage and remote API.
+     * Merges local and remote transfers, filters hidden ones, and returns consolidated list.
+     * 
+     * @param {Object[]} [remoteRows=[]] - Transfer rows from remote API
+     * @returns {Object[]} Consolidated array of all transfer rows (local + remote)
+     * 
+     * @example
+     * const allTransfers = getAllTransferRows(apiTransfers);
+     * console.log(allTransfers.length); // Total transfers visible
+     */
     function getAllTransferRows(remoteRows = []) {
       const localRows = getLocalTransferRecords().map(normalizeTransferRow);
       const normalizedRemote = (Array.isArray(remoteRows) ? remoteRows : []).map(normalizeTransferRow);
@@ -283,6 +553,16 @@
       });
     }
 
+    /**
+     * Gets the UI prefix path from the management API URL.
+     * Extracts path segment from configured management API to determine routing prefix.
+     * 
+     * @returns {string} UI prefix path for routing (e.g., '/conectoruc3m')
+     * 
+     * @example
+     * const prefix = getUiPrefixPath();
+     * // Returns: '/conectoruc3m' if API is at '/conectoruc3m/api/management'
+     */
     function getUiPrefixPath() {
       const parts = (window.location.pathname || '/').split('/').filter(Boolean);
       const first = String(parts[0] || '').trim();
@@ -295,11 +575,31 @@
       return `/${fallback}/`;
     }
 
+    /**
+     * Gets the base URL for local assets API from configuration.
+     * Constructs URL using current window origin and connector prefix.
+     * 
+     * @returns {string} Base URL for local assets API
+     * 
+     * @example
+     * const baseUrl = getLocalAssetsApiBaseUrl();
+     * // Returns: 'http://localhost:3000/conectoruc3m/local-assets'
+     */
     function getLocalAssetsApiBaseUrl() {
       const prefix = getUiPrefixPath().replace(/\/+$/, '');
       return `${window.location.origin}${prefix}/local-assets`;
     }
 
+    /**
+     * Extracts connector prefix from the management API URL.
+     * Identifies which connector this UI is managing (e.g., 'conectoruc3m').
+     * 
+     * @returns {string} Connector prefix identifier
+     * 
+     * @example
+     * const prefix = getConnectorPrefixFromManagementApiUrl();
+     * // Returns: 'conectoruc3m' if API is at '/conectoruc3m/api/management'
+     */
     function getConnectorPrefixFromManagementApiUrl() {
       const apiBase = String(getApiBaseUrl() || '').trim();
       if (!apiBase) return '';
@@ -316,6 +616,16 @@
       return '';
     }
 
+    /**
+     * Gets candidate base URLs for local assets API with fallback routing.
+     * Tries multiple URL patterns to support different deployment scenarios.
+     * 
+     * @returns {string[]} Array of candidate base URLs in priority order
+     * 
+     * @example
+     * const candidates = getLocalAssetsApiBaseUrlCandidates();
+     * // Returns: ['http://localhost:3000/...', 'http://localhost/...', ...]
+     */
     function getLocalAssetsApiBaseUrlCandidates() {
       const candidates = [];
       const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname.startsWith('127.');
@@ -357,6 +667,17 @@
       return candidates;
     }
 
+    /**
+     * Prioritizes healthy local asset API candidates by performing health checks.
+     * Sorts candidates into healthy and unhealthy groups based on /health endpoint responses.
+     * Healthy candidates are returned first for preference in API calls.
+     * 
+     * @param {string[]} [baseCandidates=[]] - Array of candidate base URLs to check
+     * @returns {Promise<string[]>} Sorted array with healthy candidates first
+     * 
+     * @example
+     * const prioritized = await prioritizeHealthyLocalAssetsCandidates(candidates);
+     */
     async function prioritizeHealthyLocalAssetsCandidates(baseCandidates = []) {
       const normalized = Array.isArray(baseCandidates) ? [...new Set(baseCandidates.filter(Boolean))] : [];
       if (normalized.length <= 1) return normalized;
@@ -388,6 +709,15 @@
       return [...healthy, ...unhealthy];
     }
 
+    /**
+     * Retrieves asset bundle backups from local storage.
+     * Asset bundles contain complete asset definitions for offline access and cached editing.
+     * 
+     * @returns {Object[]} Array of asset bundle backup objects
+     * 
+     * @example
+     * const bundles = getAssetBundleBackups();
+     */
     function getAssetBundleBackups() {
       try {
         const raw = localStorage.getItem(localAssetBundleStorageKey);
@@ -398,6 +728,19 @@
       }
     }
 
+    /**
+     * Makes authenticated API calls to local assets service.
+     * Handles request/response formatting and error management for asset operations.
+     * 
+     * @async
+     * @param {string} method - HTTP method ('GET', 'POST', 'PUT', 'DELETE')
+     * @param {string} path - API endpoint path
+     * @param {Object} [options={}] - Request options (headers, body, etc.)
+     * @returns {Promise<Object>} API response object with status and data
+     * 
+     * @example
+     * const result = await callLocalAssetsApi('POST', '/upload', { body: formData });
+     */
     async function callLocalAssetsApi(method, path, options = {}) {
       const candidates = await prioritizeHealthyLocalAssetsCandidates(getLocalAssetsApiBaseUrlCandidates());
       const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${String(path || '')}`;
@@ -429,6 +772,16 @@
       return lastFailure || { status: 502, error: 'local-assets API no accesible.' };
     }
 
+    /**
+     * Lists asset bundle backups stored on server/connector.
+     * Retrieves persisted asset definitions from server storage.
+     * 
+     * @async
+     * @returns {Promise<Object[]>} Array of asset bundle objects from server
+     * 
+     * @example
+     * const bundles = await listServerAssetBundleBackups();
+     */
     async function listServerAssetBundleBackups() {
       const r = await callLocalAssetsApi('GET', '/asset-bundles');
       if (!(r.status >= 200 && r.status < 300)) return [];
@@ -436,18 +789,48 @@
       return rows.filter(row => row && typeof row === 'object' && row.assetId);
     }
 
+    /**
+     * Creates or updates asset bundle backup on server.
+     * Persists asset definition to server storage for later retrieval.
+     * 
+     * @async
+     * @param {Object} [partialBundle={}] - Partial bundle data to save
+     * @returns {Promise<Object>} Server response with updated bundle info
+     * 
+     * @example
+     * const result = await upsertServerAssetBundleBackup({ assetId, assetBody });
+     */
     async function upsertServerAssetBundleBackup(partialBundle = {}) {
       const assetId = String(partialBundle?.assetId || '').trim();
       if (!assetId) return { status: 400 };
       return callLocalAssetsApi('POST', '/asset-bundles', { body: JSON.stringify({ ...partialBundle, assetId }) });
     }
 
+    /**
+     * Deletes asset bundle backup from server storage.
+     * 
+     * @async
+     * @param {string} assetId - Asset identifier to delete backup for
+     * @returns {Promise<Object>} Server response confirming deletion
+     * 
+     * @example
+     * const result = await deleteServerAssetBundleBackup('asset-123');
+     */
     async function deleteServerAssetBundleBackup(assetId) {
       const target = String(assetId || '').trim();
       if (!target) return { status: 400 };
       return callLocalAssetsApi('DELETE', `/asset-bundles/${encodeURIComponent(target)}`);
     }
 
+    /**
+     * Saves asset bundle backups to local storage.
+     * Maintains up to 300 bundle records for offline editing capability.
+     * 
+     * @param {Object[]} rows - Array of asset bundle objects to save
+     * 
+     * @example
+     * saveAssetBundleBackups([{assetId: 'asset-1', assetName: 'My Asset', ...}]);
+     */
     function saveAssetBundleBackups(rows) {
       try {
         const safeRows = Array.isArray(rows) ? rows.slice(0, 120) : [];
@@ -455,6 +838,20 @@
       } catch {}
     }
 
+    /**
+     * Creates or updates an asset bundle backup in local storage.
+     * Merges partial bundle data with existing record or creates new entry.
+     * 
+     * @param {Object} [partialBundle={}] - Partial asset bundle data to merge
+     * @param {string} partialBundle.assetId - Asset identifier (required for merge)
+     * 
+     * @example
+     * upsertAssetBundleBackup({
+     *   assetId: 'asset-123',
+     *   assetName: 'Updated Name',
+     *   assetBody: {...}
+     * });
+     */
     function upsertAssetBundleBackup(partialBundle = {}) {
       const assetId = String(partialBundle?.assetId || '').trim();
       if (!assetId) return;
@@ -472,6 +869,14 @@
       upsertServerAssetBundleBackup(merged).catch(() => {});
     }
 
+    /**
+     * Removes an asset bundle backup from local storage by asset ID.
+     * 
+     * @param {string} assetId - Asset identifier to remove backup for
+     * 
+     * @example
+     * removeAssetBundleBackup('asset-123');
+     */
     function removeAssetBundleBackup(assetId) {
       const target = String(assetId || '').trim();
       if (!target) return;
@@ -480,6 +885,15 @@
       deleteServerAssetBundleBackup(target).catch(() => {});
     }
 
+    /**
+     * Retrieves stored ArcGIS access token expiration time from local storage.
+     * Returns current timestamp if no expiration time was previously saved.
+     * 
+     * @returns {number} ArcGIS token expiration timestamp in milliseconds
+     * 
+     * @example
+     * const expiresAt = getStoredArcgisTokenExpiresAt();
+     */
     function getStoredArcgisTokenExpiresAt() {
       try {
         const raw = sessionStorage.getItem(arcgisTokenExpiresStorageKey) || '';
@@ -491,6 +905,14 @@
       }
     }
 
+    /**
+     * Stores ArcGIS access token expiration time in local storage.
+     * 
+     * @param {number} expiresAtMs - Token expiration timestamp in milliseconds
+     * 
+     * @example
+     * setStoredArcgisTokenExpiresAt(Date.now() + 3600000); // 1 hour from now
+     */
     function setStoredArcgisTokenExpiresAt(expiresAtMs) {
       try {
         const parsed = Number(expiresAtMs || 0);
@@ -502,6 +924,17 @@
       } catch {}
     }
 
+    /**
+     * Formats milliseconds as human-readable time remaining.
+     * Returns negative values with absolute time if already expired.
+     * 
+     * @param {number} ms - Milliseconds to format
+     * @returns {string} Human-readable time string (e.g., '59m 30s', 'expired for 5m 20s')
+     * 
+     * @example
+     * formatRemainingTimeMs(3661000); // Returns: '1h 1m 1s'
+     * formatRemainingTimeMs(-300000); // Returns: 'expired for 5m'
+     */
     function formatRemainingTimeMs(ms) {
       const total = Math.max(0, Math.floor(ms / 1000));
       const h = Math.floor(total / 3600);
@@ -512,6 +945,13 @@
       return `${s}s`;
     }
 
+    /**
+     * Refreshes UI indicator showing ArcGIS token expiration status.
+     * Updates visual feedback based on remaining time until token expiration.
+     * 
+     * @example
+     * refreshArcgisTokenIndicator(); // Updates UI with current token status
+     */
     function refreshArcgisTokenIndicator() {
       const widget = document.getElementById('arcgisTokenWidget');
       const value = document.getElementById('arcgisTokenRemaining');
@@ -529,15 +969,21 @@
       if (!token) {
         value.textContent = 'sin token';
         value.classList.add('danger');
+        try { refreshArcgisPublishAssist(); } catch {}
+        try { refreshStarTrustPanel(); } catch {}
         return;
       }
       if (!expiresAt) {
         value.textContent = 'token activo';
+        try { refreshArcgisPublishAssist(); } catch {}
+        try { refreshStarTrustPanel(); } catch {}
         return;
       }
       if (remainingMs <= 0) {
         value.textContent = 'expirado';
         value.classList.add('danger');
+        try { refreshArcgisPublishAssist(); } catch {}
+        try { refreshStarTrustPanel(); } catch {}
         return;
       }
 
@@ -547,8 +993,17 @@
       } else if (remainingMs < 30 * 60 * 1000) {
         value.classList.add('warn');
       }
+      try { refreshArcgisPublishAssist(); } catch {}
+      try { refreshStarTrustPanel(); } catch {}
     }
 
+    /**
+     * Ensures an interval timer exists for periodic ArcGIS token indicator updates.
+     * Creates timer if not already running to keep token expiration display current.
+     * 
+     * @example
+     * ensureArcgisTokenIndicatorTimer(); // Starts update timer if needed
+     */
     function ensureArcgisTokenIndicatorTimer() {
       if (arcgisTokenUiTimer) return;
       arcgisTokenUiTimer = setInterval(() => {
@@ -556,6 +1011,18 @@
       }, 1000);
     }
 
+    /**
+     * Automatically detects and fixes the API base URL configuration.
+     * Attempts to resolve correct API URL through various detection methods,
+     * with fallback to manual user input if automatic detection fails.
+     * Updates UI with detected configuration and displays status messages.
+     * 
+     * @returns {Promise<string>} Resolved API base URL
+     * 
+     * @example
+     * const apiUrl = await getAutoFixedApiBaseUrl();
+     * console.log('API configured at:', apiUrl);
+     */
     function getAutoFixedApiBaseUrl() {
       const current = String(getApiBaseUrl() || '').trim();
       if (!current) return '';
@@ -573,6 +1040,21 @@
       }
     }
 
+    /**
+     * Makes authenticated API calls to EDC Management API.
+     * Handles request formatting, authentication headers, and response parsing.
+     * Supports optional output logging to console panel for debugging.
+     * 
+     * @async
+     * @param {string} method - HTTP method ('GET', 'POST', 'PUT', 'DELETE')
+     * @param {string} path - API endpoint path (e.g., '/v3/assets')
+     * @param {string|Object} body - Request body (JSON string or object)
+     * @param {Object} [options={}] - Additional options (silent, retries, etc.)
+     * @returns {Promise<Object>} API response with status and data properties
+     * 
+     * @example
+     * const result = await callApi('POST', '/v3/assets', assetJson);
+     */
     async function callApi(method, path, body, options = {}) {
       const retries = Number.isFinite(Number(options.retries)) ? Number(options.retries) : Number(settings.apiRetries || 0);
       const timeoutMs = Number.isFinite(Number(options.timeoutMs)) ? Number(options.timeoutMs) : Number(settings.apiTimeoutMs || 15000);
@@ -693,6 +1175,17 @@
       return err;
     }
 
+    /**
+     * Updates UI status indicator for vault secrets configuration.
+     * Displays current state of secrets availability (configured/missing).
+     * Updates visual feedback and info messages in the console.
+     * 
+     * @param {string} kind - Type of secret ('client-id', 'client-secret', etc.)
+     * @param {string} message - Status message to display
+     * 
+     * @example
+     * updateSecretsStatus('oauth2', 'Client credentials configured');
+     */
     function updateSecretsStatus(kind, message) {
       const el = document.getElementById('secretsStatus');
       if (!el) return;
@@ -700,6 +1193,18 @@
       el.textContent = message;
     }
 
+    /**
+     * Discovers available secrets from vault API.
+     * Queries vault service to list available secret keys for authentication.
+     * Optionally logs results to console for debugging.
+     * 
+     * @async
+     * @param {boolean} [showOutput=false] - Whether to log results to console
+     * @returns {Promise<string[]>} Array of available secret names/keys
+     * 
+     * @example
+     * const secrets = await discoverSecretsApi(true); // Show results in console
+     */
     async function discoverSecretsApi(showOutput = false) {
       const candidates = [
         { method: 'POST', path: '/v3/secrets/request', body: q(), parser: (r) => unwrap(r).map(s => s['@id'] || s.id).filter(Boolean) },
@@ -733,6 +1238,13 @@
       return failure;
     }
 
+    /**
+     * Applies i18n translation overrides from configuration.
+     * Merges config language pack into main i18n dictionary.
+     * 
+     * @example
+     * applyI18n(); // Applies any cfg.languagePack overrides
+     */
     function applyI18n() {
       document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
       document.getElementById('brandTitle').textContent = settings.language === 'en' ? 'EITEL Connector' : 'Conector EITEL';
@@ -741,6 +1253,14 @@
       applyStaticLanguagePack();
     }
 
+    /**
+     * Applies a static language pack from configuration for i18n.
+     * Loads and applies language translations defined in cfg.staticLanguagePack.
+     * Updates all translatable UI elements with provided language strings.
+     * 
+     * @example
+     * applyStaticLanguagePack(); // Loads translations from cfg configuration
+     */
     function applyStaticLanguagePack() {
       const esToEn = {
         'Centro de control': 'Control Center',
@@ -857,6 +1377,15 @@
       });
     }
 
+    /**
+     * Updates console button visibility based on console view state.
+     * Toggles buttons display when user hides/shows the console panel.
+     * 
+     * @param {boolean} [hidden] - Whether console is hidden (auto-detected if omitted)
+     * 
+     * @example
+     * updateConsoleButtons(true); // Hide buttons when console is hidden
+     */
     function updateConsoleButtons(hidden = app.classList.contains('console-hidden')) {
       const toggle = document.getElementById('btnConsoleToggle');
       const expand = document.getElementById('btnConsoleExpand');
@@ -867,6 +1396,19 @@
       show.style.display = hidden ? 'inline-flex' : 'none';
     }
 
+    /**
+     * Shows an information popup modal with formatted content.
+     * Displays title and payload data in a modal dialog within console area.
+     * Supports various display options and auto-close behavior.
+     * 
+     * @param {string} title - Popup title
+     * @param {string|Object} payload - Content to display (stringified if object)
+     * @param {Object} [options={}] - Display options
+     * @param {number} [options.autoClose] - Auto-close after milliseconds
+     * 
+     * @example
+     * showInfoPopup('Success', { status: 200, message: 'Created' }, { autoClose: 3000 });
+     */
     function showInfoPopup(title, payload, options = {}) {
       document.getElementById('infoTitle').textContent = title || 'Detalle';
       if (options && options.plainText) {
@@ -885,6 +1427,13 @@
       }
       infoModal.classList.add('open');
     }
+    /**
+     * Closes the information popup modal.
+     * Removes popup from DOM and clears its content.
+     * 
+     * @example
+     * closeInfoPopup(); // Hides and removes popup modal
+     */
     function closeInfoPopup() {
       infoModal.classList.remove('open');
       infoActionHandler = null;
@@ -892,6 +1441,14 @@
       actionBtn.style.display = 'none';
     }
 
+    /**
+     * Applies UI configuration and initialization settings.
+     * Sets up theme, language, layout preferences from stored configuration.
+     * Called on page load to restore user preferences.
+     * 
+     * @example
+     * applySettings(); // Restores saved UI configuration
+     */
     function applySettings() {
       document.body.dataset.theme = settings.theme;
       app.classList.toggle('console-bottom', settings.consolePos === 'bottom');
@@ -913,6 +1470,15 @@
       persistSettings();
     }
 
+    /**
+     * Activates a specific view panel in the UI.
+     * Hides other views and shows selected one with its content and controls.
+     * 
+     * @param {string} view - View identifier ('publish', 'contract', 'transfer', 'catalog')
+     * 
+     * @example
+     * activateView('publish'); // Show asset publishing view
+     */
     function activateView(view) {
       const resolved = view;
       document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
@@ -941,6 +1507,13 @@
       }
     }
 
+    /**
+     * Updates asset preview panel with selected asset details.
+     * Displays asset metadata, image, and source configuration in preview area.
+     * 
+     * @example
+     * updateAssetPreview(); // Refresh preview with current asset selection
+     */
     function updateAssetPreview() {
       const key = slug(document.getElementById('assetKey').value || '');
       document.getElementById('assetIdPreview').value = `asset-${key}`;
@@ -960,6 +1533,14 @@
       setVal('contractContractPolicyId', policyId);
     }
 
+    /**
+     * Applies policy mode UI configuration.
+     * Shows or hides policy-related controls based on current mode.
+     * Supports 'restricted' or 'open' policy creation modes.
+     * 
+     * @example
+     * applyPolicyMode(); // Configure policy UI based on app settings
+     */
     function applyPolicyMode() {
       const mode = document.getElementById('policyMode')?.value || 'form';
       const form = document.getElementById('policyFormBlock');
@@ -969,6 +1550,14 @@
       json.style.display = mode === 'jsonld' ? 'block' : 'none';
     }
 
+    /**
+     * Refreshes catalog asset dropdown options.
+     * Fetches latest assets from Management API and updates selection list.
+     * Handles errors gracefully by maintaining current options.
+     * 
+     * @example
+     * refreshCatalogAssetOptions(); // Reload available assets for selection
+     */
     function refreshCatalogAssetOptions() {
       const sel = document.getElementById('catalogAssetId');
       const terms = document.getElementById('catalogPolicyTerms');
@@ -989,6 +1578,16 @@
       if (accept) accept.checked = false;
     }
 
+    /**
+     * Renders catalog showcase panel with dataset cards.
+     * Displays available assets from catalog with metadata and preview.
+     * Creates clickable cards for asset selection and browsing.
+     * 
+     * @param {Object[]} [rows=[]] - Array of dataset/asset objects to display
+     * 
+     * @example
+     * renderCatalogShowcase(datasets); // Display catalog with dataset cards
+     */
     function renderCatalogShowcase(rows = []) {
       const wrap = document.getElementById('catalogShowcase');
       if (!wrap) return;
@@ -1140,6 +1739,17 @@
       }));
     }
 
+    /**
+     * Renders published assets table in UI.
+     * Creates HTML table with asset data including name, source, and action buttons.
+     * Each row is clickable to select asset for editing.
+     * 
+     * @param {Object[]} [rows=[]] - Array of published asset objects
+     * @returns {void}
+     * 
+     * @example
+     * renderPublishedAssets(assets); // Display assets in table format
+     */
     function renderPublishedAssets(rows = []) {
       const wrap = document.getElementById('publishedAssetsGrid');
       if (!wrap) return;
@@ -1183,6 +1793,18 @@
       }).join('');
     }
 
+    /**
+     * Loads published assets from Management API.
+     * Fetches asset list from connector and updates internal cache.
+     * Optionally logs results to console for debugging.
+     * 
+     * @async
+     * @param {boolean} [showOutput=false] - Whether to log results to console
+     * @returns {Promise<Object[]>} Array of published assets
+     * 
+     * @example
+     * const assets = await loadPublishedAssets(true);
+     */
     async function loadPublishedAssets(showOutput = false) {
       const r = await callApi('POST', '/v3/assets/request', q());
       const allRows = mapPublishedAssetRows(unwrap(r));
@@ -1193,6 +1815,17 @@
       return r;
     }
 
+    /**
+     * Refreshes all overview panels with latest connector data.
+     * Reloads assets, policies, contracts, and transfers from API.
+     * Updates all UI sections to reflect current connector state.
+     * 
+     * @async
+     * @returns {Promise<void>}
+     * 
+     * @example
+     * await refreshOverview(); // Reload all connector data
+     */
     async function refreshOverview() {
       const [a, p, ags, tps] = await Promise.all([
         callApi('POST', '/v3/assets/request', q()),
@@ -1277,7 +1910,530 @@
           }).join('');
         }
       }
+
+      try { refreshStarTrustPanel(); } catch {}
     }
+
+    const starTrustEnabled = ['1', 'true', 'yes', 'on'].includes(String(cfg.starMode || (String(connectorName || '').toLowerCase().includes('star') ? 'true' : '')).toLowerCase());
+    const starTrustConfig = {
+      enabled: starTrustEnabled,
+      coordinatorName: String(cfg.starCoordinatorName || 'UC3M Coordinador EITEL').trim(),
+      coordinatorUrl: String(cfg.starCoordinatorUrl || '').trim(),
+      coordinatorStatusUrl: String(cfg.starCoordinatorStatusUrl || '').trim(),
+      didMethod: String(cfg.starDidMethod || 'did:key').trim(),
+      participantDid: String(cfg.starParticipantDid || '').trim(),
+      vcPresent: ['1', 'true', 'yes', 'on'].includes(String(cfg.starVcPresent || '').toLowerCase()),
+      vcIssuer: String(cfg.starVcIssuer || 'UC3M').trim(),
+    };
+    const starTrustState = {
+      handshakeState: 'idle',
+      handshakeDetail: '',
+      transferState: 'idle',
+      transferDetail: '',
+      lastCounterParty: '',
+      lastAssetId: '',
+      lastAgreementId: '',
+      lastTransferId: '',
+      timeline: [],
+    };
+    const starTrustRemote = {
+      loading: false,
+      lastLoadedAt: 0,
+      snapshot: null,
+      participants: {},
+      participantErrors: {},
+      error: '',
+      lastSuccessSignature: '',
+    };
+
+    function escapeStarHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getStarSecretMatch(patterns = []) {
+      const names = Array.isArray(state?.secretNames) ? state.secretNames : [];
+      return names.find((name) => patterns.some((pattern) => pattern.test(String(name || '')))) || '';
+    }
+
+    function getRemoteStarCoordinator() {
+      return starTrustRemote.snapshot && typeof starTrustRemote.snapshot === 'object'
+        ? (starTrustRemote.snapshot.coordinator || null)
+        : null;
+    }
+
+    function getRemoteStarParticipant() {
+      return starTrustRemote.snapshot && typeof starTrustRemote.snapshot === 'object'
+        ? (starTrustRemote.snapshot.participant || null)
+        : null;
+    }
+
+    function getStarParticipantCandidates() {
+      const configured = [];
+      const current = canonicalConnectorPrefix(connectorName || cfg?.connectorName || '');
+      if (current) configured.push(current);
+
+      const configuredList = String(cfg.connectorCatalogList || '').trim();
+      if (configuredList) {
+        configuredList.split(/[\n,;]+/g)
+          .map((value) => canonicalConnectorPrefix(value))
+          .filter(Boolean)
+          .forEach((value) => configured.push(value));
+      }
+
+      Object.keys(getConfiguredConnectorDirectory()).forEach((value) => {
+        const normalized = canonicalConnectorPrefix(value);
+        if (normalized) configured.push(normalized);
+      });
+
+      return [...new Set(configured.map((value) => String(value || '').trim()).filter(Boolean))];
+    }
+
+    async function fetchCoordinatorHealthAndKey() {
+      const coordinatorUrl = String(starTrustConfig.coordinatorUrl || '').trim();
+      if (!coordinatorUrl) throw new Error('Falta la URL del coordinador.');
+
+      const [healthRes, keyRes] = await Promise.allSettled([
+        fetch(`${coordinatorUrl}/health`, { headers: { accept: 'application/json' } }),
+        fetch(`${coordinatorUrl}/public-key`, { headers: { accept: 'application/json' } }),
+      ]);
+
+      const healthy = healthRes.status === 'fulfilled' && healthRes.value?.ok;
+      let pubKey = null;
+      if (keyRes.status === 'fulfilled' && keyRes.value?.ok) {
+        const jwks = await keyRes.value.json().catch(() => null);
+        pubKey = jwks?.keys?.[0] ?? null;
+      }
+
+      return { healthy, pubKey, coordinatorUrl };
+    }
+
+    function getStarParticipantTone(participant, error = '') {
+      if (error) return 'warn';
+      const didAvailable = Boolean(participant?.did);
+      const vcAvailable = Boolean(participant?.vc?.present);
+      if (didAvailable && vcAvailable) return 'ok';
+      if (didAvailable || vcAvailable) return 'warn';
+      return 'danger';
+    }
+
+    function getStarParticipantStatusLabel(participant, error = '') {
+      if (error) return 'Sin respuesta';
+      const didAvailable = Boolean(participant?.did);
+      const vcAvailable = Boolean(participant?.vc?.present);
+      if (didAvailable && vcAvailable) return 'Identidad completa';
+      if (didAvailable || vcAvailable) return 'Identidad parcial';
+      return 'Pendiente';
+    }
+
+    function buildFallbackStarParticipant(participantId) {
+      const current = canonicalConnectorPrefix(connectorName || cfg?.connectorName || '');
+      if (participantId !== current) return null;
+      return {
+        id: participantId,
+        did: starTrustConfig.participantDid || '',
+        vc: {
+          present: Boolean(starTrustConfig.vcPresent),
+          issuer: starTrustConfig.vcIssuer || '',
+          id: '',
+          status: starTrustConfig.vcPresent ? 'configured' : 'pending',
+        },
+      };
+    }
+
+    function renderStarParticipants() {
+      const container = document.getElementById('starParticipantsGrid');
+      if (!container) return;
+
+      const participantIds = getStarParticipantCandidates();
+      const current = canonicalConnectorPrefix(connectorName || cfg?.connectorName || '');
+      if (!participantIds.length) {
+        container.innerHTML = '<article class="star-participant-card" data-tone="info"><div class="star-participant-head"><div><div class="star-participant-role">Participante</div><div class="star-participant-name">Sin conectores configurados</div></div><div class="star-participant-status">Pendiente</div></div><dl class="star-participant-list"><dt>Detalle</dt><dd>Define los conectores Star en la configuración para mostrar DID, VC y endpoint DSP de cada uno.</dd></dl></article>';
+        return;
+      }
+
+      const cards = participantIds.map((participantId) => {
+        const participant = starTrustRemote.participants[participantId] || buildFallbackStarParticipant(participantId);
+        const error = starTrustRemote.participantErrors[participantId] || '';
+        const tone = getStarParticipantTone(participant, error);
+        const status = getStarParticipantStatusLabel(participant, error);
+        const label = prettyConnectorLabel(participantId);
+        const did = participant?.did ? clean(participant.did) : 'pendiente';
+        const vcId = participant?.vc?.id ? clean(participant.vc.id) : 'pendiente';
+        const issuer = participant?.vc?.issuer ? clean(participant.vc.issuer) : (participant?.vc?.present ? 'configurado' : '-');
+        const vcStatus = error
+          ? `Error: ${clean(error)}`
+          : (participant?.vc?.present
+            ? `${clean(participant?.vc?.status || 'disponible')}`
+            : 'pendiente');
+        const dspUrl = resolveConfiguredDspUrl(participantId) || (participantId === current ? String(cfg?.dspUrl || '').trim() : '');
+
+        return `
+          <article class="star-participant-card" data-tone="${escapeStarHtml(tone)}">
+            <div class="star-participant-head">
+              <div>
+                <div class="star-participant-role">${participantId === current ? 'Conector local' : 'Conector remoto'}</div>
+                <div class="star-participant-name">${escapeStarHtml(label)}</div>
+              </div>
+              <div class="star-participant-status">${escapeStarHtml(status)}</div>
+            </div>
+            <dl class="star-participant-list">
+              <dt>ID</dt><dd>${escapeStarHtml(clean(participant?.id || participantId))}</dd>
+              <dt>DID</dt><dd>${escapeStarHtml(did)}</dd>
+              <dt>VC</dt><dd>${escapeStarHtml(vcId)}</dd>
+              <dt>Emisor</dt><dd>${escapeStarHtml(issuer)}</dd>
+              <dt>Estado</dt><dd>${escapeStarHtml(vcStatus)}</dd>
+              <dt>DSP</dt><dd>${escapeStarHtml(dspUrl || 'sin resolver')}</dd>
+            </dl>
+          </article>
+        `;
+      });
+
+      container.innerHTML = cards.join('');
+    }
+
+    function getStarCounterpartyLabel() {
+      const raw = String(starTrustState.lastCounterParty || '').trim();
+      if (!raw) return '-';
+      const normalized = canonicalConnectorPrefix(raw);
+      const pretty = prettyConnectorLabel(normalized || raw);
+      return normalized && pretty !== normalized ? `${pretty} (${clean(normalized)})` : clean(raw);
+    }
+
+    function renderStarProcess() {
+      const container = document.getElementById('starProcessSteps');
+      if (!container) return;
+
+      const remoteCoordinator = getRemoteStarCoordinator();
+      const coordinatorName = String(remoteCoordinator?.name || starTrustConfig.coordinatorName || 'UC3M Coordinador EITEL').trim();
+      const coordinatorUrl = String(remoteCoordinator?.url || starTrustConfig.coordinatorUrl || '').trim();
+      const coordinatorReady = Boolean(coordinatorUrl);
+      const didReady = hasStarDid();
+      const vcReady = hasStarVc();
+      const hasCounterparty = Boolean(String(starTrustState.lastCounterParty || '').trim());
+
+      const handshakePhase = {
+        idle: ['warn', 'Pendiente', 'Todavía no se ha elegido una contraparte para negociar.'],
+        resolving: ['info', 'Resolviendo', starTrustState.handshakeDetail || 'La UI está resolviendo la identidad y el endpoint de la contraparte.'],
+        negotiating: ['info', 'En curso', starTrustState.handshakeDetail || 'La negociación P2P ya se ha enviado al nodo remoto.'],
+        agreed: ['ok', 'Completado', starTrustState.handshakeDetail || 'Ya existe un agreement y el plano de datos puede arrancar.'],
+        failed: ['danger', 'Fallido', starTrustState.handshakeDetail || 'La negociación no ha podido completarse.'],
+      };
+      const transferPhase = {
+        idle: ['warn', 'Pendiente', 'Aún no hay transferencia directa iniciada.'],
+        preparing: ['info', 'Preparando', starTrustState.transferDetail || 'Preparando canal y destino de la transferencia.'],
+        running: ['info', 'En curso', starTrustState.transferDetail || 'Los datos están viajando de nodo a nodo.'],
+        completed: ['ok', 'Completada', starTrustState.transferDetail || 'La transferencia directa ya terminó.'],
+        failed: ['danger', 'Fallida', starTrustState.transferDetail || 'La transferencia no pudo completarse.'],
+      };
+
+      const steps = [
+        {
+          num: 1,
+          title: 'Coordinador publica confianza',
+          tone: coordinatorReady ? 'ok' : 'warn',
+          status: coordinatorReady ? 'Listo' : 'Pendiente',
+          detail: coordinatorReady
+            ? `${coordinatorName} expone la clave pública y el estado inicial. Después sale del camino de la negociación y de la transferencia.`
+            : 'Falta configurar o alcanzar el endpoint del coordinador Star.',
+        },
+        {
+          num: 2,
+          title: 'Nodo carga DID y VC',
+          tone: didReady && vcReady ? 'ok' : (didReady || vcReady ? 'warn' : 'danger'),
+          status: didReady && vcReady ? 'Listo' : (didReady || vcReady ? 'Parcial' : 'Pendiente'),
+          detail: didReady && vcReady
+            ? 'El participante local ya tiene identidad suficiente para operar en Star.'
+            : 'Todavía falta completar parte de la identidad del nodo local.',
+        },
+        {
+          num: 3,
+          title: 'Se resuelve la contraparte',
+          tone: hasCounterparty ? 'ok' : 'warn',
+          status: hasCounterparty ? 'Resuelta' : 'Pendiente',
+          detail: hasCounterparty
+            ? `La contraparte actual es ${getStarCounterpartyLabel()}. Su DSP y material de confianza se usan para el siguiente paso.`
+            : 'Aquí aparecerá el conector remoto seleccionado en catálogo o contrato. Esto es lo que estabas buscando como counter party.',
+        },
+        {
+          num: 4,
+          title: 'Handshake P2P',
+          tone: (handshakePhase[starTrustState.handshakeState] || handshakePhase.idle)[0],
+          status: (handshakePhase[starTrustState.handshakeState] || handshakePhase.idle)[1],
+          detail: (handshakePhase[starTrustState.handshakeState] || handshakePhase.idle)[2],
+        },
+        {
+          num: 5,
+          title: 'Transferencia directa',
+          tone: (transferPhase[starTrustState.transferState] || transferPhase.idle)[0],
+          status: (transferPhase[starTrustState.transferState] || transferPhase.idle)[1],
+          detail: (transferPhase[starTrustState.transferState] || transferPhase.idle)[2],
+        },
+      ];
+
+      container.innerHTML = steps.map((step) => `
+        <article class="star-process-step" data-tone="${escapeStarHtml(step.tone)}">
+          <div class="star-process-step-num">${escapeStarHtml(step.num)}</div>
+          <div class="star-process-step-title">${escapeStarHtml(step.title)}</div>
+          <div class="star-process-step-status">${escapeStarHtml(step.status)}</div>
+          <p class="star-process-step-detail">${escapeStarHtml(step.detail)}</p>
+        </article>
+      `).join('');
+    }
+
+    function renderStarSessionFacts() {
+      const container = document.getElementById('starSessionFacts');
+      if (!container) return;
+
+      const remoteCoordinator = getRemoteStarCoordinator();
+      const coordinatorName = String(remoteCoordinator?.name || starTrustConfig.coordinatorName || 'UC3M Coordinador EITEL').trim();
+      const coordinatorUrl = String(remoteCoordinator?.url || starTrustConfig.coordinatorUrl || '').trim();
+      const facts = [
+        { label: 'Coordinador', value: coordinatorUrl ? `${coordinatorName} · ${coordinatorUrl}` : coordinatorName },
+        { label: 'Contraparte', value: getStarCounterpartyLabel() },
+        { label: 'Asset', value: clean(starTrustState.lastAssetId || '-') },
+        { label: 'Agreement', value: clean(starTrustState.lastAgreementId || '-') },
+        { label: 'Transfer ID', value: clean(starTrustState.lastTransferId || '-') },
+        { label: 'Rol real del coordinador', value: 'Solo publica confianza inicial, clave pública y estado. No mueve el dato ni media en tiempo real en el handshake P2P.' },
+      ];
+
+      container.innerHTML = facts.map((fact) => `
+        <article class="star-session-card">
+          <div class="star-session-label">${escapeStarHtml(fact.label)}</div>
+          <div class="star-session-value">${escapeStarHtml(fact.value)}</div>
+        </article>
+      `).join('');
+    }
+
+    function getStarDidLabel() {
+      const remoteParticipant = getRemoteStarParticipant();
+      const didSecret = getStarSecretMatch([/participant.*did/i, /^did$/i, /star.*did/i]);
+      if (remoteParticipant?.did) return String(remoteParticipant.did).trim();
+      if (starTrustConfig.participantDid) return starTrustConfig.participantDid;
+      if (didSecret) return `vault:${didSecret}`;
+      return `${starTrustConfig.didMethod || 'did:key'} pendiente`;
+    }
+
+    function hasStarDid() {
+      const remoteParticipant = getRemoteStarParticipant();
+      return Boolean(remoteParticipant?.did || starTrustConfig.participantDid || getStarSecretMatch([/participant.*did/i, /^did$/i, /star.*did/i]));
+    }
+
+    function hasStarVc() {
+      const remoteParticipant = getRemoteStarParticipant();
+      return Boolean(
+        remoteParticipant?.vc?.present ||
+        starTrustConfig.vcPresent ||
+        getStarSecretMatch([/verifiable.*credential/i, /participant.*vc/i, /^vc$/i, /star.*vc/i, /credential/i])
+      );
+    }
+
+    async function loadStarTrustSnapshot(force = false) {
+      if (!starTrustConfig.enabled) return;
+      const now = Date.now();
+      if (starTrustRemote.loading) return;
+      if (!force && starTrustRemote.snapshot && (now - starTrustRemote.lastLoadedAt) < 30000) return;
+
+      starTrustRemote.loading = true;
+      try {
+        const { healthy, pubKey, coordinatorUrl } = await fetchCoordinatorHealthAndKey();
+
+        const currentParticipantId = canonicalConnectorPrefix(connectorName || cfg?.connectorName || '');
+        const localParticipant = buildFallbackStarParticipant();
+
+        const coordinatorSnapshot = {
+          coordinator: {
+            name: starTrustConfig.coordinatorName,
+            url: starTrustConfig.coordinatorUrl,
+            publicKey: pubKey ? { id: pubKey.kid, published: true } : null,
+            healthy,
+          },
+          participant: localParticipant,
+        };
+
+        starTrustRemote.participants = { [currentParticipantId]: localParticipant };
+        starTrustRemote.participantErrors = {};
+        starTrustRemote.snapshot = coordinatorSnapshot;
+        starTrustRemote.error = '';
+        starTrustRemote.lastLoadedAt = Date.now();
+
+        const participantId = clean(localParticipant?.id || currentParticipantId || 'participante');
+        const didValue = clean(localParticipant?.did || 'pendiente');
+        const vcState = localParticipant?.vc?.present ? 'disponible' : 'pendiente';
+        const signature = JSON.stringify([
+          coordinatorUrl || '',
+          participantId,
+          didValue,
+          localParticipant?.vc?.present || false,
+        ]);
+
+        if (force || signature !== starTrustRemote.lastSuccessSignature) {
+          starTrustRemote.lastSuccessSignature = signature;
+          const coordinatorStatus = healthy ? 'disponible' : 'no disponible';
+          pushStarTrustEvent('Coordinador consultado', `${coordinatorStatus}. Nodo: ${participantId}, DID ${didValue}, VC ${vcState}.`, localParticipant?.vc?.present ? 'ok' : 'warn');
+          return;
+        }
+      } catch (error) {
+        starTrustRemote.error = error?.message ? String(error.message) : 'No se pudo consultar el coordinador.';
+        starTrustRemote.lastLoadedAt = Date.now();
+        if (force) {
+          pushStarTrustEvent('Coordinador no disponible', starTrustRemote.error, 'warn');
+          return;
+        }
+      } finally {
+        starTrustRemote.loading = false;
+        refreshStarTrustPanel();
+      }
+    }
+
+    function pushStarTrustEvent(title, detail, tone = 'info') {
+      if (!starTrustConfig.enabled) return;
+      starTrustState.timeline.unshift({
+        title: String(title || 'Estado Star').trim(),
+        detail: String(detail || '').trim(),
+        tone,
+        at: Date.now(),
+      });
+      starTrustState.timeline = starTrustState.timeline.slice(0, 8);
+      refreshStarTrustPanel();
+    }
+
+    function setStarTrustCard(prefix, tone, status, detail) {
+      const card = document.getElementById(`${prefix}Card`);
+      const statusNode = document.getElementById(`${prefix}Status`);
+      const detailNode = document.getElementById(`${prefix}Detail`);
+      if (card) card.setAttribute('data-tone', tone || 'info');
+      if (statusNode) statusNode.textContent = status || '';
+      if (detailNode) detailNode.textContent = detail || '';
+    }
+
+    function refreshArcgisPublishAssist() {
+      const wrap = document.getElementById('arcgisPublishAssist');
+      const status = document.getElementById('publishArcgisAuthState');
+      if (!wrap || !status) return;
+
+      const authType = document.getElementById('pubAuthType')?.value || 'none';
+      const shouldShow = Boolean(arcgis?.enabled) && (starTrustConfig.enabled || authType === 'arcgis-login');
+      wrap.style.display = shouldShow ? '' : 'none';
+      if (!shouldShow) return;
+
+      const token = getArcgisAccessTokenForPublish();
+      const expiresAt = getStoredArcgisTokenExpiresAt();
+      const remainingMs = expiresAt ? (expiresAt - Date.now()) : 0;
+      status.className = 'status-pill';
+
+      if (!token) {
+        status.classList.add('warn');
+        status.textContent = 'ArcGIS pendiente de login';
+        return;
+      }
+      if (expiresAt && remainingMs <= 0) {
+        status.classList.add('danger');
+        status.textContent = 'Token ArcGIS expirado';
+        return;
+      }
+      if (expiresAt && remainingMs < 30 * 60 * 1000) {
+        status.classList.add('warn');
+        status.textContent = `Token ArcGIS activo (${formatRemainingTimeMs(remainingMs)})`;
+        return;
+      }
+
+      status.classList.add('ok');
+      status.textContent = expiresAt ? `Token ArcGIS activo (${formatRemainingTimeMs(remainingMs)})` : 'Sesion ArcGIS activa';
+    }
+
+    function refreshStarTrustPanel() {
+      const banner = document.getElementById('starTrustBanner');
+      const summary = document.getElementById('starTrustSummary');
+      const timeline = document.getElementById('starTrustTimeline');
+      if (!banner || !summary || !timeline) return;
+
+      banner.style.display = starTrustConfig.enabled ? '' : 'none';
+      if (!starTrustConfig.enabled) return;
+
+      loadStarTrustSnapshot(false);
+
+      summary.textContent = 'Proceso Star: 1) el coordinador publica confianza inicial, 2) cada nodo expone DID y VC, 3) se resuelve la contraparte, 4) el handshake ocurre P2P, 5) el dato viaja directo entre nodos.';
+
+      const remoteCoordinator = getRemoteStarCoordinator();
+      const remoteParticipant = getRemoteStarParticipant();
+      const coordinatorName = String(remoteCoordinator?.name || starTrustConfig.coordinatorName || 'UC3M Coordinador EITEL').trim();
+      const coordinatorUrl = String(remoteCoordinator?.url || starTrustConfig.coordinatorUrl || '').trim();
+      const coordinatorHasKey = Boolean(remoteCoordinator?.publicKey?.published || remoteCoordinator?.publicKey?.id);
+      const coordinatorTone = starTrustRemote.loading ? 'info' : (coordinatorUrl ? (coordinatorHasKey ? 'ok' : 'warn') : 'warn');
+      const coordinatorStatus = starTrustRemote.loading
+        ? 'Consultando coordinador'
+        : (coordinatorUrl ? (coordinatorHasKey ? 'Coordinador verificado' : 'Coordinador configurado') : 'Coordinador sin endpoint');
+      const coordinatorDetail = starTrustRemote.error
+        ? `${coordinatorName}. ${starTrustRemote.error}`
+        : (coordinatorUrl
+          ? `${coordinatorName} · ${coordinatorUrl}${coordinatorHasKey ? ` · clave ${clean(remoteCoordinator?.publicKey?.id || 'publicada')}` : ''}`
+          : `${coordinatorName}. Falta exponer el endpoint público de clave o metadatos.`);
+      setStarTrustCard('starCoordinator', coordinatorTone, coordinatorStatus, coordinatorDetail);
+
+      const didLabel = getStarDidLabel();
+      const remoteVc = remoteParticipant?.vc || null;
+      const vcAvailable = hasStarVc();
+      const didAvailable = hasStarDid();
+      const vcTone = vcAvailable && didAvailable ? 'ok' : (vcAvailable || didAvailable ? 'warn' : 'danger');
+      const vcStatus = vcAvailable && didAvailable ? 'Identidad preparada' : (vcAvailable || didAvailable ? 'Identidad parcial' : 'VC y DID pendientes');
+      const vcSource = remoteVc?.id
+        ? `coordinador:${clean(remoteVc.id)}`
+        : getStarSecretMatch([/verifiable.*credential/i, /participant.*vc/i, /^vc$/i, /star.*vc/i, /credential/i]);
+      const vcIssuer = String(remoteVc?.issuer || starTrustConfig.vcIssuer || 'UC3M').trim();
+      const vcDetail = `DID: ${didLabel}. VC: ${vcAvailable ? `disponible${vcSource ? ` en ${vcSource}` : ''}` : `pendiente (${vcIssuer} emite una sola vez)`}.${remoteVc?.status ? ` Estado: ${clean(remoteVc.status)}.` : ''}`;
+      setStarTrustCard('starVc', vcTone, vcStatus, vcDetail);
+      renderStarProcess();
+      renderStarSessionFacts();
+      renderStarParticipants();
+
+      const arcgisToken = getArcgisAccessTokenForPublish();
+      const arcgisTone = !arcgis?.enabled ? 'info' : (arcgisToken || authState.username ? 'ok' : 'warn');
+      const arcgisStatus = !arcgis?.enabled
+        ? 'ArcGIS no requerido'
+        : (arcgisToken || authState.username ? 'Sesion ArcGIS activa' : 'Login requerido');
+      const arcgisDetail = !arcgis?.enabled
+        ? 'Este despliegue puede operar sin ArcGIS. El token solo se pide cuando el asset o el destino lo requieren.'
+        : ((authState.username || arcgisToken)
+          ? `Portal ${arcgis.portalUrl || '-'} · ${authState.username ? `usuario ${authState.username}` : 'token disponible para publicar o subir datos'}`
+          : `Portal ${arcgis.portalUrl || '-'} · inicia sesión para publicar assets ArcGIS o subir transferencias al portal.`);
+      setStarTrustCard('starArcgis', arcgisTone, arcgisStatus, arcgisDetail);
+
+      const handshakeByState = {
+        idle: ['warn', 'Sin negociación', 'Todavía no se ha abierto una negociación de contrato con otro participante.'],
+        resolving: ['info', 'Resolviendo identidad', starTrustState.handshakeDetail || 'Resolviendo el participante remoto, su DSP y el material de confianza disponible.'],
+        negotiating: ['info', 'Negociando contrato', starTrustState.handshakeDetail || 'El plano de control está creando el acuerdo entre nodos.'],
+        agreed: ['ok', 'Handshake preparado', starTrustState.handshakeDetail || 'Existe acuerdo y la relación P2P puede pasar al plano de datos.'],
+        failed: ['danger', 'Handshake con incidencia', starTrustState.handshakeDetail || 'La negociación no ha terminado correctamente.'],
+      };
+      const [handshakeTone, handshakeStatus, handshakeDetail] = handshakeByState[starTrustState.handshakeState] || handshakeByState.idle;
+      setStarTrustCard('starHandshake', handshakeTone, handshakeStatus, handshakeDetail);
+
+      const transferByState = {
+        idle: ['warn', 'Sin transferencia', 'No hay un intercambio directo activo entre nodos en este momento.'],
+        preparing: ['info', 'Preparando canal', starTrustState.transferDetail || 'La UI está preparando la transferencia directa entre participante consumidor y proveedor.'],
+        running: ['info', 'Transferencia en curso', starTrustState.transferDetail || 'El dato está viajando directamente por el plano de datos.'],
+        completed: ['ok', 'Transferencia completada', starTrustState.transferDetail || 'La transferencia directa ha finalizado correctamente.'],
+        failed: ['danger', 'Transferencia con incidencia', starTrustState.transferDetail || 'La transferencia no se ha completado correctamente.'],
+      };
+      const [transferTone, transferStatus, transferDetail] = transferByState[starTrustState.transferState] || transferByState.idle;
+      setStarTrustCard('starTransfer', transferTone, transferStatus, transferDetail);
+
+      if (!starTrustState.timeline.length) {
+        timeline.innerHTML = '<div class="star-event" data-tone="info"><div class="star-event-head"><span class="star-event-title">Star listo para PoC</span><span class="star-event-time">ahora</span></div><div class="star-event-detail">La UI está preparada para reflejar coordinador, VC, DID, handshake P2P y transferencia directa. Si hay endpoint configurado, consulta su estado automáticamente.</div></div>';
+      } else {
+        timeline.innerHTML = starTrustState.timeline.map((event) => `\n          <div class="star-event" data-tone="${escapeStarHtml(event.tone || 'info')}">\n            <div class="star-event-head">\n              <span class="star-event-title">${escapeStarHtml(event.title)}</span>\n              <span class="star-event-time">${escapeStarHtml(new Date(event.at).toLocaleTimeString())}</span>\n            </div>\n            <div class="star-event-detail">${escapeStarHtml(event.detail)}</div>\n          </div>\n        `).join('');
+      }
+
+      refreshArcgisPublishAssist();
+    }
+
+    window.refreshStarTrustPanel = refreshStarTrustPanel;
+  window.refreshStarTrustSnapshot = loadStarTrustSnapshot;
 
     let lastArcgisPublishToken = '';
 
@@ -1303,6 +2459,16 @@
       }
     }
 
+    /**
+     * Fetches ArcGIS access token from existing browser portal session.
+     * Attempts to retrieve token from active ArcGIS Portal login.
+     * 
+     * @async
+     * @returns {Promise<string|null>} Access token if found, null otherwise
+     * 
+     * @example
+     * const token = await fetchArcgisAccessTokenFromPortalSession();
+     */
     async function fetchArcgisAccessTokenFromPortalSession() {
       if (!arcgis?.portalUrl) return '';
       try {
@@ -1336,6 +2502,18 @@
       }
     }
 
+    /**
+     * Resolves ArcGIS access token for asset publishing operations.
+     * Checks session, portal token storage, and user input fields.
+     * Returns cached token or fetches new one from portal.
+     * 
+     * @async
+     * @returns {Promise<string|null>} Valid ArcGIS access token or null if unavailable
+     * 
+     * @example
+     * const token = await resolveArcgisTokenForPublish();
+     * if (!token) { ensureArcgisLogin(); }
+     */
     async function resolveArcgisTokenForPublish() {
       // Prefer a fresh token from ArcGIS session to avoid stale-token transfers.
       const fresh = await fetchArcgisAccessTokenFromPortalSession();
@@ -1514,6 +2692,19 @@
       return `${safeAssetId}.${guessFileExtension(contentType)}`;
     }
 
+    /**
+     * Downloads asset from remote source to local storage via EDC transfer.
+     * Initiates transfer process and stores downloaded file in download-sink service.
+     * Handles error cases including missing assets and failed transfers.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID for the transfer
+     * @param {string} assetId - Asset ID to download
+     * @returns {Promise<Object>} Response with status and file information
+     * 
+     * @example
+     * const result = await downloadAssetLocally('contract-123', 'asset-456');
+     */
     async function downloadAssetLocally(contractId, assetId) {
       if (!assetId) {
         return { status: 404, error: 'No se pudo resolver el asset asociado al contrato seleccionado.' };
@@ -1706,6 +2897,18 @@
       return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    /**
+     * Waits for a transfer to complete or reach terminal state.
+     * Polls transfer status at intervals until completion or timeout.
+     * 
+     * @async
+     * @param {string} transferId - Transfer ID to monitor
+     * @param {number} [maxWaitMs=120000] - Maximum wait time in milliseconds (default 2 minutes)
+     * @returns {Promise<Object|null>} Final transfer state or null if timed out
+     * 
+     * @example
+     * const transfer = await waitTransferToFinish('transfer-123', 60000);
+     */
     async function waitTransferToFinish(transferId, maxWaitMs = 120000) {
       const started = Date.now();
       while (Date.now() - started < maxWaitMs) {
@@ -1722,6 +2925,17 @@
       return { ok: false, state: 'TIMEOUT', error: 'La transferencia no finalizó a tiempo.' };
     }
 
+    /**
+     * Retrieves latest download sink record for a contract.
+     * Gets most recent downloaded file associated with contract/asset.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID to check
+     * @returns {Promise<Object|null>} Latest download record or null if none found
+     * 
+     * @example
+     * const download = await getLatestDownloadSinkRecord('contract-123');
+     */
     async function getLatestDownloadSinkRecord(contractId) {
       const sinkBaseUrl = buildLocalDownloadSinkPublicBaseUrl();
       const recordsRes = await fetch(`${sinkBaseUrl}/records?contractId=${encodeURIComponent(contractId)}`);
@@ -1778,6 +2992,20 @@
       return filtered[0] || unique[0] || '';
     }
 
+    /**
+     * Downloads asset from alternate source hint URL.
+     * Used as fallback when EDC transfer fails or asset is unavailable.
+     * Directly fetches asset from provided URL hint.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID context
+     * @param {string} assetId - Asset ID context
+     * @param {string} sourceUrl - Alternate source URL to download from
+     * @returns {Promise<Object>} Download response with status and data
+     * 
+     * @example
+     * const result = await downloadFromSourceHint('contract-123', 'asset-456', 'https://example.com/asset');
+     */
     async function downloadFromSourceHint(contractId, assetId, sourceUrl) {
       const url = String(sourceUrl || '').trim();
       if (!url) return { status: 404, error: 'Sin URL de origen alternativa para descarga directa.', contractId, assetId };
@@ -1900,6 +3128,17 @@
       );
     }
 
+    /**
+     * Resolves complete asset metadata required for ArcGIS upload.
+     * Fetches asset details including title, description, and type information.
+     * 
+     * @async
+     * @param {string} assetId - Asset ID to retrieve metadata for
+     * @returns {Promise<Object>} Asset metadata object for ArcGIS operations
+     * 
+     * @example
+     * const metadata = await resolveAssetMetadataForArcgis('asset-123');
+     */
     async function resolveAssetMetadataForArcgis(assetId) {
       const safeAssetId = String(assetId || '').trim();
       if (!safeAssetId) return { title: '', description: '', keywords: [] };
@@ -1956,6 +3195,19 @@
       return { title, tags, description, snippet };
     }
 
+    /**
+     * Fetches asset blob/file data for uploading to ArcGIS.
+     * Retrieves binary data from local storage or remote source for upload.
+     * Handles authentication and data formatting for ArcGIS compatibility.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID for transfer context
+     * @param {string} assetId - Asset ID to fetch blob for
+     * @returns {Promise<Object>} Blob object with binary data and metadata
+     * 
+     * @example
+     * const blob = await fetchAssetBlobForArcgisUpload('contract-123', 'asset-456');
+     */
     async function fetchAssetBlobForArcgisUpload(contractId, assetId) {
       if (!assetId) return { status: 404, error: 'No se pudo resolver el asset asociado al contrato.' };
 
@@ -2017,6 +3269,20 @@
       }
     }
 
+    /**
+     * Fetches remote asset blob using EDC transfer and download sink.
+     * Initiates transfer to download-sink service and retrieves binary file data.
+     * Handles counter-party resolution and transfer monitoring.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID for transfer
+     * @param {string} assetId - Asset ID to fetch
+     * @param {string|null} [transferParty=null] - Optional counter-party identifier
+     * @returns {Promise<Object>} Blob response with binary data and metadata
+     * 
+     * @example
+     * const blob = await fetchRemoteBlobViaTransferSink('contract-123', 'asset-456');
+     */
     async function fetchRemoteBlobViaTransferSink(contractId, assetId, transferParty = null) {
       const transferAddress = String(transferParty?.address || '').trim() || (document.getElementById('transferAddress')?.value || '').trim();
       const counterPartyId = String(transferParty?.counterPartyId || '').trim();
@@ -2103,6 +3369,20 @@
       };
     }
 
+    /**
+     * Uploads asset blob to ArcGIS Portal as an item.
+     * Handles file upload, item creation, and metadata assignment on ArcGIS server.
+     * Supports various item types and includes error recovery strategies.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID context
+     * @param {string} assetId - Asset ID being uploaded
+     * @param {string|null} [transferParty=null] - Optional counter-party context
+     * @returns {Promise<Object>} Upload response with item creation status
+     * 
+     * @example
+     * const result = await uploadTransferToArcgis('contract-123', 'asset-456');
+     */
     async function uploadTransferToArcgis(contractId, assetId, transferParty = null) {
       const title = String(document.getElementById('arcgisUploadTitle')?.value || '').trim();
       const typeInput = String(document.getElementById('arcgisUploadType')?.value || '').trim();
@@ -2196,6 +3476,20 @@
       }
     }
 
+    /**
+     * Monitors remote download transfer and fetches resulting asset blob.
+     * Polls transfer status and retrieves downloaded file from sink service.
+     * Coordinates multi-step asset download from remote connector.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID for transfer
+     * @param {string} transferId - Transfer ID to monitor
+     * @param {string} assetId - Asset ID being transferred
+     * @returns {Promise<Object>} Final blob data from sink service
+     * 
+     * @example
+     * const blob = await monitorRemoteDownloadAndFetch('contract-123', 'transfer-456', 'asset-789');
+     */
     async function monitorRemoteDownloadAndFetch(contractId, transferId, assetId) {
       try {
         const started = Date.now();
@@ -2257,6 +3551,20 @@
       }
     }
 
+    /**
+     * Downloads remote asset via EDC transfer contract.
+     * Orchestrates full process: initiates transfer, monitors progress, retrieves file.
+     * Stores result in local download-sink for user access.
+     * 
+     * @async
+     * @param {string} contractId - Contract ID for transfer
+     * @param {string} assetId - Asset ID to download
+     * @param {string|null} [transferParty=null] - Optional counter-party identifier
+     * @returns {Promise<Object>} Download completion status and file information
+     * 
+     * @example
+     * const result = await downloadRemoteAssetViaTransfer('contract-123', 'asset-456');
+     */
     async function downloadRemoteAssetViaTransfer(contractId, assetId, transferParty = null) {
       if (_remoteLocalDownloadInFlightByContract.has(contractId)) {
         return { status: 409, error: 'Ya hay una descarga remota en curso para este contrato.', contractId, assetId };
@@ -2353,6 +3661,20 @@
       return false;
     }
 
+    /**
+     * Validates that a source endpoint can be reached and returns valid data.
+     * Tests connectivity to asset source URL with proper authentication headers.
+     * Used to verify asset availability before publishing.
+     * 
+     * @async
+     * @param {string} baseUrl - Base URL of the source
+     * @param {string} path - API path on source
+     * @param {Object} [headers={}] - Authentication headers for the request
+     * @returns {Promise<Object>} Validation result with ok flag and response metadata
+     * 
+     * @example
+     * const validation = await validateSourcePayloadPreview('https://api.example.com', '/data', {});
+     */
     async function validateSourcePayloadPreview(baseUrl, path, headers) {
       const url = `${String(baseUrl || '').replace(/\/+$/, '')}${path || ''}`;
       const controller = new AbortController();
@@ -2386,6 +3708,18 @@
       }
     }
 
+    /**
+     * Uploads a local asset file to the connector's local assets service.
+     * Attempts multiple upload methods (raw, multipart) for compatibility.
+     * Stores file and generates accessible public URL.
+     * 
+     * @async
+     * @param {string} assetId - Asset ID for file association
+     * @returns {Promise<Object>} Upload response with file info and public URL
+     * 
+     * @example
+     * const result = await uploadLocalAssetSource('asset-123');
+     */
     async function uploadLocalAssetSource(assetId) {
       const fileInput = document.getElementById('assetLocalFile');
       const file = fileInput?.files?.[0];
@@ -2465,6 +3799,18 @@
       return { status: 502, error: 'No se pudo resolver una ruta de upload local-assets válida desde la UI.', tried: baseCandidates };
     }
 
+    /**
+     * Uploads a local asset image/icon file.
+     * Handles image file selection from UI and uploads to local assets service.
+     * Skips gracefully if no image selected.
+     * 
+     * @async
+     * @param {string} assetId - Asset ID to associate image with
+     * @returns {Promise<Object>} Upload response with image URL or skipped status
+     * 
+     * @example
+     * const result = await uploadLocalAssetImage('asset-123');
+     */
     async function uploadLocalAssetImage(assetId) {
       const fileInput = document.getElementById('assetImageFile');
       const file = fileInput?.files?.[0];
@@ -2570,6 +3916,8 @@
 
       syncAuthHeadersJson();
       refreshArcgisTokenIndicator();
+      refreshArcgisPublishAssist();
+      refreshStarTrustPanel();
     }
 
     function parseJsonSafe(text, fallback = null) {
@@ -2628,6 +3976,17 @@
       };
     }
 
+    /**
+     * Creates or updates a policy definition in the connector.
+     * Parses policy JSON from UI input and posts to Management API.
+     * Handles validation and displays success/error messages.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with creation status
+     * 
+     * @example
+     * await createOrUpdatePolicy(); // Creates policy from UI input
+     */
     async function createOrUpdatePolicy() {
       const policyId = document.getElementById('policyIdPreview')?.value;
       const assetId = document.getElementById('assetIdPreview')?.value;
@@ -2651,18 +4010,50 @@
       return response;
     }
 
+    /**
+     * Retrieves all policy definitions from the connector.
+     * Fetches policy list from Management API and displays in UI.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with policy list
+     * 
+     * @example
+     * await listPolicies(); // Reload and display all policies
+     */
     async function listPolicies() {
       const r = await callApi('POST', '/v3/policydefinitions/request', q());
       writeOut(r);
       return r;
     }
 
+    /**
+     * Deletes a policy definition from the connector.
+     * Removes selected policy by ID from Management API.
+     * Refreshes policy list after deletion.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with deletion status
+     * 
+     * @example
+     * await deletePolicy(); // Delete selected policy from UI
+     */
     async function deletePolicy() {
       const policyId = document.getElementById('policyIdPreview')?.value;
       if (!policyId) { writeOut({ status: 400, error: 'Policy ID requerido.' }); return; }
       writeOut(await callApi('DELETE', `/v3/policydefinitions/${encodeURIComponent(policyId)}`));
     }
 
+    /**
+     * Creates a new contract definition in the connector.
+     * Generates contract definition linking asset and policy.
+     * Posts definition to Management API for connector activation.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with contract creation status
+     * 
+     * @example
+     * await createContractDefinition(); // Create contract from UI selections
+     */
     async function createContractDefinition() {
       const contractDefId = document.getElementById('contractDefIdPreview')?.value;
       const assetId = document.getElementById('assetIdPreview')?.value;
@@ -2689,12 +4080,33 @@
       return response;
     }
 
+    /**
+     * Retrieves all contract definitions from the connector.
+     * Fetches contract list from Management API and displays in UI.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with contract list
+     * 
+     * @example
+     * await listContractDefinitions(); // Reload and display contracts
+     */
     async function listContractDefinitions() {
       const r = await callApi('POST', '/v3/contractdefinitions/request', q());
       writeOut(r);
       return r;
     }
 
+    /**
+     * Deletes a contract definition from the connector.
+     * Removes selected contract definition from Management API.
+     * Refreshes contract list after deletion.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with deletion status
+     * 
+     * @example
+     * await deleteContractDefinition(); // Delete selected contract
+     */
     async function deleteContractDefinition() {
       const id = document.getElementById('contractDefIdPreview')?.value;
       if (!id) { writeOut({ status: 400, error: 'ContractDefinition ID requerido.' }); return; }
@@ -2732,6 +4144,18 @@
       showInfoPopup('Conector vaciado', { removed, note: 'Se eliminaron assets, policies y contract definitions del conector actual.' });
     }
 
+    /**
+     * Creates or updates an asset in the connector.
+     * Handles local file uploads, metadata input, and publishes asset to Management API.
+     * Supports multiple source types and authentication methods.
+     * Triggers asset backup and handles various error scenarios.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with asset creation/update status
+     * 
+     * @example
+     * await createOrUpdateAsset(); // Create/update asset from UI input
+     */
     async function createOrUpdateAsset() {
       const id = document.getElementById('assetIdPreview').value;
       const assetName = (document.getElementById('assetName').value || '').trim();
@@ -2771,6 +4195,9 @@
           writeOut({ status: 400, error: msg });
           return { status: 400 };
           }
+        }
+        if (authType === 'arcgis-login') {
+          pushStarTrustEvent('ArcGIS listo para asset', `Se ha resuelto un token ArcGIS para publicar el asset ${clean(id || assetName || 'sin-id')}.`, 'ok');
         }
         if (authType === 'oauth2' && (!authClientId || !authClientSecret)) {
           writeOut({ status: 400, error: 'clientId y clientSecret son obligatorios para OAuth2.' });
@@ -2893,6 +4320,13 @@
           localUpload: localUploadInfo,
           hint: 'El asset se ha creado/actualizado correctamente en Management API.'
         });
+        if (starTrustConfig.enabled) {
+          pushStarTrustEvent(
+            'Asset preparado en nodo Star',
+            `Asset ${clean(id || assetName || 'sin-id')} publicado con origen ${sourceMode === 'local-file' ? 'local y soberano' : 'remoto'}${authType === 'arcgis-login' ? ' usando token ArcGIS' : ''}.`,
+            'ok'
+          );
+        }
       }
       if (authType === 'arcgis-login') {
         return {
@@ -2910,6 +4344,16 @@
       return publishResp;
     }
 
+    /**
+     * Deletes a published asset and cleans up associated local backups.
+     * Removes asset from connector and deletes offline backup copy.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with deletion status
+     * 
+     * @example
+     * await deleteAssetAndCleanupBackup(); // Delete selected asset entirely
+     */
     async function deleteAssetAndCleanupBackup() {
       const assetId = String(document.getElementById('assetIdPreview')?.value || '').trim();
       if (!assetId) return { status: 400, error: 'Asset ID requerido.' };
@@ -3023,6 +4467,17 @@
       showInfoPopup('Asset cargado para edición', { assetId: id, note: 'Revisa y pulsa Crear/Actualizar asset para guardar cambios.' });
     }
 
+    /**
+     * Deletes a single published asset from the connector.
+     * Removes asset by ID from Management API.
+     * 
+     * @async
+     * @param {string} assetId - Asset ID to delete
+     * @returns {Promise<Object>} API response with deletion status
+     * 
+     * @example
+     * await deletePublishedAsset('asset-123'); // Delete specific asset
+     */
     async function deletePublishedAsset(assetId) {
       const id = String(assetId || '').trim();
       if (!id) return;
@@ -3129,6 +4584,37 @@
       return trimmed;
     }
 
+    function getConfiguredConnectorDirectory() {
+      const source = cfg.connectorDirectory;
+      const parsed = (source && typeof source === 'object' && !Array.isArray(source))
+        ? source
+        : parseJsonSafe(String(source || '').trim(), {});
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+      const normalized = {};
+      Object.entries(parsed).forEach(([key, value]) => {
+        const normalizedKey = canonicalConnectorPrefix(key).toLowerCase();
+        const url = String(value || '').trim();
+        if (normalizedKey && url) normalized[normalizedKey] = ensureDspVersion(url);
+      });
+      return normalized;
+    }
+
+    function resolveConfiguredDspUrl(connectorId) {
+      const raw = String(connectorId || '').trim();
+      if (!raw) return '';
+
+      const directory = getConfiguredConnectorDirectory();
+      const canonical = canonicalConnectorPrefix(raw);
+      const candidates = [raw, canonical, raw.toLowerCase(), canonical.toLowerCase()].filter(Boolean);
+
+      for (const candidate of candidates) {
+        const found = directory[String(candidate).toLowerCase()];
+        if (found) return found;
+      }
+      return '';
+    }
+
     // Construir URL DSP absoluta en base al conector remoto indicado por el usuario.
     function buildDspUrl(connectorId) {
       const raw = String(connectorId || 'provider').trim();
@@ -3155,6 +4641,11 @@
       // Si llega ruta relativa (/conectorX/...), convertirla a absoluta en el host actual.
       if (raw.startsWith('/')) {
         return ensureDspVersion(`${window.location.origin}${raw}`);
+      }
+
+      const configuredUrl = resolveConfiguredDspUrl(raw);
+      if (configuredUrl) {
+        return ensureDspVersion(configuredUrl);
       }
 
       const connectorIdLower = raw.toLowerCase();
@@ -3278,6 +4769,14 @@
         return;
       }
 
+      if (starTrustConfig.enabled) {
+        starTrustState.lastCounterParty = selected.connectorId || selected.assigner || '';
+        starTrustState.lastAssetId = selected.assetId || '';
+        starTrustState.handshakeState = 'resolving';
+        starTrustState.handshakeDetail = `Preparando handshake con ${selected.connectorId || selected.assigner || 'participant'} para el asset ${clean(selected.assetId || '-')}. Se resolverá el endpoint remoto y el material de confianza disponible.`;
+        pushStarTrustEvent('Inicio de handshake', starTrustState.handshakeDetail, 'info');
+      }
+
       if (!selected.offerId) {
         writeOut({
           status: 400,
@@ -3350,6 +4849,17 @@
         counterPartyAddress: document.getElementById('resolvedAddress').value,
         policy
       }));
+      if (starTrustConfig.enabled) {
+        if (r.status >= 200 && r.status < 300) {
+          starTrustState.handshakeState = 'negotiating';
+          starTrustState.handshakeDetail = `Negociación enviada al participante ${selected.connectorId || selected.assigner || 'remoto'} en ${document.getElementById('resolvedAddress').value || '-'}. El coordinador ya no interviene en tiempo real.`;
+          pushStarTrustEvent('Negociación P2P enviada', starTrustState.handshakeDetail, 'info');
+        } else {
+          starTrustState.handshakeState = 'failed';
+          starTrustState.handshakeDetail = `No se pudo iniciar la negociación con ${selected.connectorId || selected.assigner || 'el participante remoto'}.`;
+          pushStarTrustEvent('Handshake fallido', `${starTrustState.handshakeDetail} HTTP ${r.status}.`, 'danger');
+        }
+      }
       writeOut(r);
 
       if (r.status < 200 || r.status >= 300) {
@@ -3405,12 +4915,23 @@
           const hint = String(selected.sourceHintUrl || '').trim();
           if (hint) agreementSourceHints.set(agreementId, hint);
         }
+        if (starTrustConfig.enabled) {
+          starTrustState.lastAgreementId = agreementId || '';
+          starTrustState.handshakeState = 'agreed';
+          starTrustState.handshakeDetail = `Handshake preparado con ${providerId || selected.assigner || 'provider'} para el asset ${clean(assetId || selected.assetId || '-')}. Agreement ${clean(agreementId || '-')}.`;
+          pushStarTrustEvent('Contrato disponible', starTrustState.handshakeDetail, 'ok');
+        }
         showInfoPopup('Aviso', `Contrato concretado correctamente.\nAgreement ID: ${agreementId}\nNegotiation ID: ${negotiationId}\nAsset: ${assetId}\nProvider: ${providerId}\nConsumer: ${consumerId}`, {
           plainText: true,
           actionLabel: 'Ir al contrato',
           onAction: () => window.useAgreement(agreementId)
         });
       } else {
+        if (starTrustConfig.enabled) {
+          starTrustState.handshakeState = 'negotiating';
+          starTrustState.handshakeDetail = `La negociación ${clean(negotiationId)} sigue en curso. La UI seguirá reflejando que el handshake está pendiente de acuerdo.`;
+          pushStarTrustEvent('Handshake en espera', starTrustState.handshakeDetail, 'warn');
+        }
         showInfoPopup(
           'Aviso',
           `Negociación iniciada correctamente (ID: ${negotiationId}), pero el contrato todavía no aparece en la lista. Espera unos segundos y revisa la pestaña Contratos.`,
@@ -3419,6 +4940,17 @@
       }
     }
 
+    /**
+     * Retrieves all catalog agreements (purchase contracts) from connector.
+     * Fetches active agreements where this connector is data provider or consumer.
+     * Displays agreements in catalog view with counter-party and asset information.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with agreement list
+     * 
+     * @example
+     * await listAgreements(); // Load all available agreements
+     */
     async function listAgreements() {
       const r = await callApi('POST', '/v3/contractagreements/request', q());
       const raw = unwrap(r).map(a => ({
@@ -3472,6 +5004,7 @@
       const deduplicated = raw.length - state.agreementRows.length;
       const selectedNow = (document.getElementById('agreementSelect')?.value || '').trim();
       if (selectedNow) syncTransferAddressFromAgreement(selectedNow);
+      try { refreshStarTrustPanel(); } catch {}
       writeOut({ ...r, deduplicated });
       showInfoPopup('Contratos cargados', {
         total: state.agreementRows.length,
@@ -3515,6 +5048,14 @@
       const selectedAgreement = unwrap(agreementsResp).find(a => (a['@id'] || a.id || '') === contractId) || null;
       const agreementAssetId = selectedAgreement?.assetId || selectedAgreement?.['edc:assetId'] || state.agreementRows.find(a => a.id === contractId)?.asset || '';
       const transferParty = resolveTransferParty(contractId, selectedAgreement);
+      if (starTrustConfig.enabled) {
+        starTrustState.lastAgreementId = contractId;
+        starTrustState.lastAssetId = agreementAssetId || starTrustState.lastAssetId;
+        starTrustState.lastCounterParty = transferParty?.counterPartyId || transferParty?.providerRaw || starTrustState.lastCounterParty;
+        starTrustState.transferState = 'preparing';
+        starTrustState.transferDetail = `Preparando transferencia directa para el contrato ${clean(contractId)} hacia ${transferParty?.address || document.getElementById('transferAddress').value.trim() || '-'}.`;
+        pushStarTrustEvent('Preparación de transferencia', starTrustState.transferDetail, 'info');
+      }
       if (transferParty?.address) {
         const transferAddressInput = document.getElementById('transferAddress');
         if (transferAddressInput) transferAddressInput.value = transferParty.address;
@@ -3570,6 +5111,14 @@
           downloadResp = await downloadRemoteAssetViaTransfer(contractId, agreementAssetId, transferParty);
         }
         const localTransfer = addLocalTransferRecord(buildLocalTransferRecord(downloadResp));
+        if (starTrustConfig.enabled) {
+          starTrustState.lastTransferId = localTransfer.id || '';
+          starTrustState.transferState = downloadResp.status >= 200 && downloadResp.status < 300 ? 'completed' : 'failed';
+          starTrustState.transferDetail = downloadResp.status >= 200 && downloadResp.status < 300
+            ? `El consumidor ha obtenido el dato ${clean(downloadResp.filename || agreementAssetId || '-')} directamente desde el nodo proveedor.`
+            : `La descarga directa del asset ${clean(agreementAssetId || '-')} no se ha completado correctamente.`;
+          pushStarTrustEvent(downloadResp.status >= 200 && downloadResp.status < 300 ? 'Transferencia directa completada' : 'Transferencia directa con error', starTrustState.transferDetail, downloadResp.status >= 200 && downloadResp.status < 300 ? 'ok' : 'danger');
+        }
         writeOut(downloadResp);
         await refreshOverview();
         await listTransfers();
@@ -3592,6 +5141,14 @@
       if (transferMode === 'arcgis-upload') {
         const uploadResp = await uploadTransferToArcgis(contractId, agreementAssetId, transferParty);
         const localTransfer = addLocalTransferRecord(buildLocalTransferRecord(uploadResp));
+        if (starTrustConfig.enabled) {
+          starTrustState.lastTransferId = localTransfer.id || '';
+          starTrustState.transferState = uploadResp.status >= 200 && uploadResp.status < 300 ? 'completed' : 'failed';
+          starTrustState.transferDetail = uploadResp.status >= 200 && uploadResp.status < 300
+            ? `El dato ${clean(uploadResp.filename || agreementAssetId || '-')} se ha cargado en ArcGIS tras la transferencia directa.`
+            : `La subida a ArcGIS tras la transferencia del asset ${clean(agreementAssetId || '-')} ha fallado.`;
+          pushStarTrustEvent(uploadResp.status >= 200 && uploadResp.status < 300 ? 'Carga ArcGIS completada' : 'Carga ArcGIS fallida', starTrustState.transferDetail, uploadResp.status >= 200 && uploadResp.status < 300 ? 'ok' : 'danger');
+        }
         writeOut(uploadResp);
         await refreshOverview();
         await listTransfers();
@@ -3639,10 +5196,18 @@
       };
 
       const r = await callApi('POST', '/v3/transferprocesses', JSON.stringify(body));
+      if (starTrustConfig.enabled) {
+        starTrustState.transferState = r.status >= 200 && r.status < 300 ? 'running' : 'failed';
+        starTrustState.transferDetail = r.status >= 200 && r.status < 300
+          ? `La transferencia ${clean(r?.data?.['@id'] || r?.data?.id || contractId)} ha sido aceptada. El dato viajará de nodo a nodo sin pasar por el coordinador.`
+          : `La transferencia del contrato ${clean(contractId)} no ha podido iniciarse.`;
+        pushStarTrustEvent(r.status >= 200 && r.status < 300 ? 'Transferencia P2P iniciada' : 'Inicio de transferencia fallido', starTrustState.transferDetail, r.status >= 200 && r.status < 300 ? 'info' : 'danger');
+      }
       writeOut(r);
 
       const transferId = r?.data?.['@id'] || r?.data?.id || '';
       if (r.status >= 200 && r.status < 300) {
+        if (starTrustConfig.enabled) starTrustState.lastTransferId = transferId || '';
         showInfoPopup('Transferencia iniciada', {
           status: r.status,
           transferId,
@@ -3680,6 +5245,17 @@
       FAILED: 'color:#c0392b;font-weight:bold',
     };
 
+    /**
+     * Retrieves all transfer processes from connector API.
+     * Fetches completed, active, and failed transfers.
+     * Combines local storage records with remote API data.
+     * 
+     * @async
+     * @returns {Promise<Object>} API response with transfer list
+     * 
+     * @example
+     * await listTransfers(); // Load all transfer records
+     */
     async function listTransfers() {
       const r = await callApi('POST', '/v3/transferprocesses/request', q());
       const rows = getAllTransferRows(unwrap(r));
@@ -3712,6 +5288,7 @@
         }).join('');
       }
       state.transferRows = rows;
+      try { refreshStarTrustPanel(); } catch {}
       writeOut(r);
     }
 
@@ -3774,6 +5351,18 @@
     }
     window.terminateTransfer = terminateTransfer;
 
+    /**
+     * Deletes a transfer record from local or remote storage.
+     * Removes transfer from visible list and optionally hides from future display.
+     * 
+     * @async
+     * @param {string} transferId - Transfer ID to delete
+     * @param {boolean} [isLocal=false] - Whether to delete from local storage only
+     * @returns {Promise<void>}
+     * 
+     * @example
+     * await deleteTransferRecord('transfer-123'); // Delete transfer record
+     */
     async function deleteTransferRecord(transferId, isLocal = false) {
       if (!transferId) return;
 
@@ -3902,6 +5491,17 @@
       writeOut({ info: `Monitoreando transferencia ${transferId}...` });
     };
 
+    /**
+     * Checks status of the dummy sink test service.
+     * Fetches recorded messages from dummy inbox endpoint.
+     * Useful for testing connector message flow without real transfers.
+     * 
+     * @async
+     * @returns {Promise<void>}
+     * 
+     * @example
+     * await checkDummy(); // Check dummy sink records
+     */
     async function checkDummy() {
       try {
         const res = await fetch(`${settings.dummyUrl}/v1/dummy-sink/records`);
@@ -3912,6 +5512,16 @@
       }
     }
 
+    /**
+     * Clears all records from the dummy sink test service.
+     * Resets dummy inbox for fresh testing of connector message flow.
+     * 
+     * @async
+     * @returns {Promise<void>}
+     * 
+     * @example
+     * await clearDummy(); // Clear dummy sink records
+     */
     async function clearDummy() {
       try {
         const res = await fetch(`${settings.dummyUrl}/v1/dummy-sink/records`, { method: 'DELETE' });

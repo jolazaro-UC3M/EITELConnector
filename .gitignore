@@ -7,6 +7,17 @@ caas/data/caas.db
 # Virtual environment
 .venv/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Environment files
+.env
+.env.production
+connectors/*/.env
+caas/control-plane/.env
+demo_assets_data/
+
 # Internal documentation and reference files
 ref/
 CLAUDE.md

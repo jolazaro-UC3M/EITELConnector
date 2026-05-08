@@ -1,0 +1,1 @@
+CREATE DATABASE conectornormal_db;

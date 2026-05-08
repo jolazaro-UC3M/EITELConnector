@@ -63,6 +63,36 @@
           writeOut({ status: 200, message: 'Token ArcGIS regenerado correctamente.' });
         };
       }
+      if (document.getElementById('btnPublishArcgisLogin')) {
+        document.getElementById('btnPublishArcgisLogin').onclick = () => startArcgisLogin();
+      }
+      if (document.getElementById('btnPublishArcgisTokenRefresh')) {
+        document.getElementById('btnPublishArcgisTokenRefresh').onclick = async () => {
+          const token = await fetchArcgisAccessTokenFromPortalSession();
+          refreshArcgisTokenIndicator();
+          if (!token) {
+            writeOut({ status: 401, error: 'No se pudo obtener token ArcGIS para el origen del asset.' });
+            return;
+          }
+          writeOut({ status: 200, message: 'Token ArcGIS disponible para publicar el asset.' });
+        };
+      }
+      if (document.getElementById('btnStarArcgisLogin')) {
+        document.getElementById('btnStarArcgisLogin').onclick = () => startArcgisLogin();
+      }
+      if (document.getElementById('btnStarTrustRefresh')) {
+        document.getElementById('btnStarTrustRefresh').onclick = async () => {
+          try { await listSecrets(false); } catch {}
+          try { refreshArcgisTokenIndicator(); } catch {}
+          try { await refreshOverview(); } catch {}
+          try {
+            if (typeof refreshStarTrustSnapshot === 'function') {
+              await refreshStarTrustSnapshot(true);
+            }
+          } catch {}
+          try { refreshStarTrustPanel(); } catch {}
+        };
+      }
       if (document.getElementById('btnSaveSecret')) document.getElementById('btnSaveSecret').onclick = saveSecret;
       if (document.getElementById('btnListSecrets')) document.getElementById('btnListSecrets').onclick = () => listSecrets(true);
       if (document.getElementById('btnDeleteSecret')) document.getElementById('btnDeleteSecret').onclick = deleteSecret;
@@ -201,14 +231,13 @@
     // Keep original handlers from 02-operations.js to avoid recursive self-calls.
 
     function init() {
-      if (arcgis.enabled) {
-        showAuthGate('Validando sesion ArcGIS...', false);
-      }
+      hideAuthGate();
       document.getElementById('badge').textContent = `${role} · EDC · ${getApiBaseUrl() || 'management api'}`;
-      document.getElementById('searchConnectorId').value = '';
+      const configuredRemoteConnector = (cfg.defaultRemoteConnector || '').trim();
+      document.getElementById('searchConnectorId').value = configuredRemoteConnector;
       document.getElementById('transferAddress').value = '';
       if (document.getElementById('catalogConnectorsList')) {
-        document.getElementById('catalogConnectorsList').value = 'conectoruc3m, conectorFuenlabrada';
+        document.getElementById('catalogConnectorsList').value = (cfg.connectorCatalogList || 'conectoruc3m, conectorFuenlabrada').trim();
       }
       if (document.getElementById('catalogFilterConnector')) {
         document.getElementById('catalogFilterConnector').value = '';
@@ -221,7 +250,7 @@
       bindEvents();
       
       // Inicializar URL DSP con el valor por defecto
-      const initialConnectorId = (document.getElementById('searchConnectorId').value || 'provider').trim() || 'provider';
+      const initialConnectorId = (document.getElementById('searchConnectorId').value || configuredRemoteConnector || 'provider').trim() || 'provider';
       document.getElementById('resolvedAddress').value = buildDspUrl(initialConnectorId);
       document.getElementById('transferAddress').value = buildDspUrl(initialConnectorId);
       
@@ -232,22 +261,14 @@
       if (typeof syncTransferModeUi === 'function') syncTransferModeUi();
       if (typeof ensureArcgisTokenIndicatorTimer === 'function') ensureArcgisTokenIndicatorTimer();
       if (typeof refreshArcgisTokenIndicator === 'function') refreshArcgisTokenIndicator();
+      if (typeof refreshStarTrustPanel === 'function') refreshStarTrustPanel();
       applySettings();
 
-      ensureArcgisLogin().then((ok) => {
-        if (!ok) return;
-        if (arcgis.enabled && authState.username) {
-          document.getElementById('badge').textContent = `${role} · ${authState.username} · ${getApiBaseUrl() || 'management api'}`;
-          document.getElementById('btnArcgisLogout').style.display = 'inline-flex';
-        }
-        if (typeof applyAuthTypeForm === 'function') applyAuthTypeForm();
-        if (typeof refreshArcgisTokenIndicator === 'function') refreshArcgisTokenIndicator();
-        refreshOverview();
-        loadCatalogShowcase(false);
-        loadPublishedAssets(false);
-        restoreAssetsFromBackup({ onlyIfEmpty: true, silent: true });
-        listSecrets(false);
-      });
+      refreshOverview();
+      loadCatalogShowcase(false);
+      loadPublishedAssets(false);
+      restoreAssetsFromBackup({ onlyIfEmpty: true, silent: true });
+      listSecrets(false);
     }
     init();
 

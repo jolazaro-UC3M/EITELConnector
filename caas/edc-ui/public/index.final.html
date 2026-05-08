@@ -22,6 +22,7 @@
         <div class="nav-group">
           <div class="nav-group-title">Centro de control</div>
           <button class="active" data-view="dashboard"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span>Dashboard</span></button>
+          <button data-view="star-trust"><svg viewBox="0 0 24 24"><path d="M12 3 4.5 7v5c0 4.6 3.1 8.1 7.5 9 4.4-.9 7.5-4.4 7.5-9V7z"/><path d="M9 12.5 11 14.5 15.5 10"/></svg><span>Star Trust</span></button>
           <button data-view="catalog"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M7 9h10M7 13h10M7 17h6"/></svg><span>Catálogo</span></button>
           <button data-view="contracts"><svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6z"/><path d="M15 3v4h4"/><path d="M9 11h6M9 15h6"/></svg><span>Contratos</span></button>
           <button data-view="transfers"><svg viewBox="0 0 24 24"><path d="M3 7h13v10H3z"/><path d="M16 10h3l2 2v5h-5"/><circle cx="7" cy="18" r="1.8"/><circle cx="18" cy="18" r="1.8"/></svg><span>Transferencias</span></button>
@@ -112,6 +113,69 @@
         </div>
       </section>
 
+      <section class="panel" id="panel-star-trust">
+        <section class="star-trust-banner" id="starTrustBanner" style="display:none">
+          <div class="star-trust-head">
+            <div>
+              <h2>Star Trust</h2>
+              <p class="muted" id="starTrustSummary">Visibilidad continua del modelo distribuido: coordinador, VC, handshake P2P y transferencia directa.</p>
+            </div>
+            <div class="row" style="margin:0">
+              <button class="ghost" id="btnStarArcgisLogin">Entrar con ArcGIS</button>
+              <button class="ghost" id="btnStarTrustRefresh">Actualizar estado</button>
+            </div>
+          </div>
+          <div class="star-trust-grid">
+            <article class="star-step-card" id="starCoordinatorCard" data-tone="warn">
+              <div class="star-step-kicker">Confianza</div>
+              <div class="star-step-title">Coordinador</div>
+              <div class="star-step-status" id="starCoordinatorStatus">Pendiente</div>
+              <p class="star-step-detail" id="starCoordinatorDetail">Sin datos del coordinador.</p>
+            </article>
+            <article class="star-step-card" id="starVcCard" data-tone="warn">
+              <div class="star-step-kicker">Identidad</div>
+              <div class="star-step-title">VC y DID</div>
+              <div class="star-step-status" id="starVcStatus">Pendiente</div>
+              <p class="star-step-detail" id="starVcDetail">La credencial verificable debe estar disponible en el nodo.</p>
+            </article>
+            <article class="star-step-card" id="starArcgisCard" data-tone="warn">
+              <div class="star-step-kicker">Portal</div>
+              <div class="star-step-title">ArcGIS Enterprise</div>
+              <div class="star-step-status" id="starArcgisStatus">Login requerido</div>
+              <p class="star-step-detail" id="starArcgisDetail">El token del portal se usa para publicar y subir datos en ArcGIS cuando hace falta.</p>
+            </article>
+            <article class="star-step-card" id="starHandshakeCard" data-tone="warn">
+              <div class="star-step-kicker">Plano de control</div>
+              <div class="star-step-title">Handshake P2P</div>
+              <div class="star-step-status" id="starHandshakeStatus">Sin negociación</div>
+              <p class="star-step-detail" id="starHandshakeDetail">Todavía no se ha iniciado ninguna negociación con otro participante.</p>
+            </article>
+            <article class="star-step-card" id="starTransferCard" data-tone="warn">
+              <div class="star-step-kicker">Plano de datos</div>
+              <div class="star-step-title">Transferencia directa</div>
+              <div class="star-step-status" id="starTransferStatus">Sin transferencia</div>
+              <p class="star-step-detail" id="starTransferDetail">El dato debe viajar directamente entre nodos, sin intervención del coordinador.</p>
+            </article>
+          </div>
+          <div class="star-process">
+            <div class="star-process-title">Proceso Star</div>
+            <div class="star-process-grid" id="starProcessSteps"></div>
+          </div>
+          <div class="star-session">
+            <div class="star-session-title">Sesión actual</div>
+            <div class="star-session-grid" id="starSessionFacts"></div>
+          </div>
+          <div class="star-participants">
+            <div class="star-participants-title">Participantes Star</div>
+            <div class="star-participants-grid" id="starParticipantsGrid"></div>
+          </div>
+          <div class="star-trust-timeline">
+            <div class="star-trust-timeline-title">Trazabilidad Star</div>
+            <div class="star-trust-events" id="starTrustTimeline"></div>
+          </div>
+        </section>
+      </section>
+
       <section class="panel" id="panel-asset">
         <div class="grid">
           <section class="card wide">
@@ -150,6 +214,14 @@
               <p class="muted">Se sube al servicio local del conector y luego se publica el asset usando esa URL interna.</p>
             </div>
             <h3>Autenticación opcional</h3>
+            <div id="arcgisPublishAssist" class="star-inline-note" style="display:none">
+              <div class="row" style="align-items:center; margin-top:0">
+                <span id="publishArcgisAuthState" class="status-pill warn">ArcGIS pendiente de login</span>
+                <button class="ghost" id="btnPublishArcgisLogin">Entrar con ArcGIS</button>
+                <button class="ghost" id="btnPublishArcgisTokenRefresh">Pedir token</button>
+              </div>
+              <p class="muted" style="margin-bottom:0">Si el origen del asset está en ArcGIS Enterprise, selecciona <strong>Access token (login ArcGIS)</strong>. La UI reutiliza la sesión del portal y solicita el token necesario para publicar o transferir.</p>
+            </div>
             <div class="grid">
               <div>
                 <label>Tipo</label>
@@ -594,8 +666,8 @@
 
   <div class="auth-gate" id="authGate">
     <div class="auth-card">
-      <h2>Acceso restringido</h2>
-      <p class="auth-help">Esta consola requiere sesión activa de ArcGIS Enterprise (cookie de portal) para control de acceso.</p>
+      <h2>Acceso ArcGIS</h2>
+      <p class="auth-help">Esta ventana solo se usa cuando quieres publicar un asset desde ArcGIS o pedir un token del portal. La consola puede funcionar sin iniciar sesión en ArcGIS.</p>
       <div class="row" style="margin-top:12px">
         <button class="primary" id="btnArcgisLogin">Entrar con ArcGIS Enterprise</button>
         <button class="ghost" id="btnArcgisCheck">Ya inicie sesion</button>
